@@ -1,0 +1,150 @@
+.connection-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: var(--bar-bg, #f5f5f5);
+  border-bottom: 1px solid var(--border-color, #ddd);
+}
+
+.connection-bar-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.target-input {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 200px;
+}
+
+.target-input:disabled {
+  background-color: #e0e0e0;
+  cursor: not-allowed;
+}
+
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: #2196f3;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #1976d2;
+}
+
+.btn-secondary {
+  background-color: #757575;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #616161;
+}
+
+.connection-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-icon {
+  background: none;
+  border: 1px solid var(--border-color, #ddd);
+  padding: 6px 12px;
+  min-width: 36px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon:hover:not(:disabled) {
+  background-color: var(--hover-bg, #f0f0f0);
+}
+
+.btn-icon.btn-active {
+  background-color: var(--primary-color, #2196f3);
+  color: white;
+  border-color: var(--primary-color, #2196f3);
+}
+
+.git-branch-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background-color: var(--bg-color, #fff);
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+  margin-right: 8px;
+}
+
+.git-branch-display:hover {
+  background-color: var(--hover-bg, #f5f5f5);
+}
+
+.git-icon {
+  font-size: 14px;
+}
+
+.git-branch-text {
+  font-family: monospace;
+  font-weight: 600;
+  color: var(--text-color, #000);
+}
+
+[data-theme="dark"] .git-branch-display {
+  background-color: var(--bg-color, #1e1e1e);
+  border-color: var(--border-color, #3e3e3e);
+}
+
+[data-theme="dark"] .git-branch-display:hover {
+  background-color: var(--hover-bg, #2e2e2e);
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-text {
+  font-size: 14px;
+  color: var(--text-color, #333);
+}
+
+[data-theme="dark"] .connection-bar {
+  --bar-bg: #252526;
+  --border-color: #3e3e3e;
+  --text-color: #d4d4d4;
+}
+
