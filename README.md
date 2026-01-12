@@ -33,10 +33,24 @@ A web-based control center for managing RDE (Remote Development Environment) ser
 
 ## Development
 
+### Starting the Backend Server
+
+To start **only** the backend API server:
+
+```bash
+npm run dev:server
+```
+
+This will start the Express.js backend server on `http://localhost:3000`.
+
+**Note:** The backend server is required for the frontend to function. You can run it separately or use `npm run dev:browser` to start both backend and frontend together.
+
 ### Web Mode (Recommended)
 ```bash
 npm run dev:browser
 ```
+
+This starts both the backend server and frontend dev server concurrently.
 
 ### Electron Mode (Legacy)
 ```bash
