@@ -167,12 +167,24 @@ export function SDKUpdatePanel({ target, connectionState }: SDKUpdatePanelProps)
       appendOutput(`\n🔄 Step 4: Restarting ${resolvedServiceName} service...`);
       try {
         const restartResult = await restartService(target || '', resolvedServiceName);
-        if (restartResult.success) {
-          appendOutput(`✓ Service ${resolvedServiceName} restarted successfully`);
+        if (restartResult.success && restartResult.newState) {
+          appendOutput(`✓ Service ${resolvedServiceName} restarted successfully (${restartResult.newState})`);
           appendOutput(`\n✅ SDK Update completed successfully!`);
           showToast(`SDK update completed for ${resolvedServiceName}`, 'success');
+          
+          // Update the service status in the list if it exists
+          setServices((prevServices) => {
+            const serviceIndex = prevServices.findIndex(s => s.name === resolvedServiceName);
+            if (serviceIndex !== -1) {
+              const updated = [...prevServices];
+              updated[serviceIndex] = { ...updated[serviceIndex], state: restartResult.newState! };
+              return updated;
+            }
+            return prevServices;
+          });
         } else {
-          appendOutput(`✗ Failed to restart service: ${restartResult.error || 'Unknown error'}`);
+          const errorMsg = restartResult.error || 'Unknown error';
+          appendOutput(`✗ Failed to restart service: ${errorMsg}`);
           appendOutput(`\n⚠️ SDK package installed but service restart failed. Please restart manually.`);
           showToast('SDK installed but service restart failed', 'warning');
         }

@@ -121,17 +121,28 @@ export function ServicesPanel({ target, connectionState }: ServicesPanelProps) {
         result = await stopService(target || '', serviceName);
       }
       
+      console.log(`[${operation.toUpperCase()}] Result:`, result);
+      console.log(`[${operation.toUpperCase()}] Success check:`, result.success, 'serviceName:', result.serviceName, 'newState:', result.newState);
+      
       if (result.success && result.serviceName && result.newState) {
         const oldService = services.find(s => s.name === serviceName);
         const stateChanged = oldService && oldService.state !== result.newState;
         
-        setServices((prevServices) =>
-          prevServices.map((service) =>
-            service.name === result.serviceName
-              ? { ...service, state: result.newState! }
-              : service
-          )
-        );
+        console.log(`[${operation.toUpperCase()}] Updating service ${result.serviceName} to state ${result.newState}`);
+        
+        // Update the specific service's status based on the result
+        setServices((prevServices) => {
+          const serviceIndex = prevServices.findIndex(s => s.name === result.serviceName);
+          if (serviceIndex !== -1) {
+            // Service exists, update its state
+            const updated = [...prevServices];
+            updated[serviceIndex] = { ...updated[serviceIndex], state: result.newState! };
+            return updated;
+          }
+          // Service not found, return unchanged (don't lose services)
+          console.warn(`[${operation.toUpperCase()}] Service ${result.serviceName} not found in services list`);
+          return prevServices;
+        });
         
         const message = `${operation === 'restart' ? 'Restarted' : operation === 'start' ? 'Started' : 'Stopped'} ${serviceName}`;
         showToast(message, 'success');
@@ -144,8 +155,9 @@ export function ServicesPanel({ target, connectionState }: ServicesPanelProps) {
           );
         }
       } else {
-        showToast(`Failed to ${operation} ${serviceName}`, 'error');
-        await getSupervisorStatus(target || '');
+        const errorMsg = result.error || 'Unknown error';
+        console.error(`[${operation.toUpperCase()}] Failed:`, errorMsg, 'Full result:', result);
+        showToast(`Failed to ${operation} ${serviceName}: ${errorMsg}`, 'error');
       }
     } catch (error) {
       console.error(`Failed to ${operation} service:`, error);
@@ -173,11 +185,11 @@ export function ServicesPanel({ target, connectionState }: ServicesPanelProps) {
         const successCount = result.results.filter(r => r.success).length;
         const failedCount = result.results.length - successCount;
         
-        // Update services
+        // Update services - only update services that exist in the list
         setServices((prevServices) => {
           const updated = [...prevServices];
           result.results!.forEach(r => {
-            if (r.success && r.newState) {
+            if (r.success && r.newState && r.serviceName) {
               const index = updated.findIndex(s => s.name === r.serviceName);
               if (index !== -1) {
                 updated[index] = { ...updated[index], state: r.newState };

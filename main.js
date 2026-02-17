@@ -676,39 +676,47 @@ ipcMain.handle('supervisor/restart', async (event, { target, serviceName }) => {
     const { process, promise } = executeRemoteCommand('', command, commandId);
     const result = await promise;
     
+    const output = result.output || '';
+    const outputLower = output.toLowerCase();
+    
+    // Check for errors or fatal messages - if found, restart failed
+    const hasError = outputLower.includes('error') || outputLower.includes('fatal');
+    
+    if (hasError || result.exitCode !== 0) {
+      return { 
+        success: false, 
+        error: hasError ? 'Restart failed with error' : 'Restart command failed',
+        output: output 
+      };
+    }
+    
     // Parse output to check if restart was successful
     // Expected format: "serviceName: stopped" then "serviceName: started"
-    const output = result.output || '';
+    // For services with colons: "backend-group:payments: stopped" then "backend-group:payments: started"
     const lines = output.trim().split('\n');
     
     let restartSuccess = false;
     let newState = null;
     
+    // Look for pattern: serviceName: started (case insensitive)
+    // This handles both "backend-group:payments: started" and variations
+    const startedPattern = new RegExp(`${serviceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*started`, 'i');
+    
     for (const line of lines) {
       const trimmedLine = line.trim();
-      // Check if this line matches the service name and contains a state
-      // Format: "backend-group:fetching: stopped" then "backend-group:fetching: started"
-      if (trimmedLine.includes(serviceName) && trimmedLine.includes(':')) {
-        // Extract state after the last colon (handles both "service: state" and "group:service: state")
-        const parts = trimmedLine.split(':');
-        const lastPart = parts[parts.length - 1].trim().toLowerCase();
-        
-        // Check if we see "started" which indicates success
-        // Supervisor restart output shows "started" but status shows "RUNNING"
-        if (lastPart === 'started') {
-          restartSuccess = true;
-          // Map "started" to "RUNNING" to match supervisorctl status output format
-          newState = 'RUNNING';
-          break;
-        }
-        // If we see "stopped", continue to look for "started" on next line
+      // Check if line matches the pattern "serviceName: started"
+      if (startedPattern.test(trimmedLine)) {
+        restartSuccess = true;
+        // Map "started" to "RUNNING" to match supervisorctl status output format
+        newState = 'RUNNING';
+        break;
       }
     }
     
     return { 
-      success: restartSuccess && result.exitCode === 0,
+      success: restartSuccess,
       serviceName: restartSuccess ? serviceName : undefined,
-      newState: newState || (restartSuccess ? 'STARTED' : undefined),
+      newState: newState || undefined,
       output: output
     };
   } catch (error) {
@@ -733,6 +741,18 @@ ipcMain.handle('supervisor/start', async (event, { target, serviceName }) => {
     const result = await promise;
     
     const output = result.output || '';
+    const outputLower = output.toLowerCase();
+    const hasError = outputLower.includes('error') || outputLower.includes('fatal');
+    
+    if (hasError || result.exitCode !== 0) {
+      return { 
+        success: false, 
+        error: hasError ? 'Start failed with error' : 'Start command failed',
+        output: output 
+      };
+    }
+    
+    // Parse output: "serviceName: started"
     const lines = output.trim().split('\n');
     
     let startSuccess = false;
@@ -740,10 +760,9 @@ ipcMain.handle('supervisor/start', async (event, { target, serviceName }) => {
     
     for (const line of lines) {
       const trimmedLine = line.trim();
-      if (trimmedLine.includes(serviceName) && trimmedLine.includes(':')) {
-        const parts = trimmedLine.split(':');
-        const lastPart = parts[parts.length - 1].trim().toLowerCase();
-        if (lastPart === 'started') {
+      if (trimmedLine.startsWith(serviceName + ':')) {
+        const statePart = trimmedLine.substring(serviceName.length + 1).trim().toLowerCase();
+        if (statePart === 'started') {
           startSuccess = true;
           newState = 'RUNNING';
           break;
@@ -752,9 +771,9 @@ ipcMain.handle('supervisor/start', async (event, { target, serviceName }) => {
     }
     
     return { 
-      success: startSuccess && result.exitCode === 0,
+      success: startSuccess,
       serviceName: startSuccess ? serviceName : undefined,
-      newState: newState || (startSuccess ? 'RUNNING' : undefined),
+      newState: newState || undefined,
       output: output
     };
   } catch (error) {
@@ -779,6 +798,18 @@ ipcMain.handle('supervisor/stop', async (event, { target, serviceName }) => {
     const result = await promise;
     
     const output = result.output || '';
+    const outputLower = output.toLowerCase();
+    const hasError = outputLower.includes('error') || outputLower.includes('fatal');
+    
+    if (hasError || result.exitCode !== 0) {
+      return { 
+        success: false, 
+        error: hasError ? 'Stop failed with error' : 'Stop command failed',
+        output: output 
+      };
+    }
+    
+    // Parse output: "serviceName: stopped"
     const lines = output.trim().split('\n');
     
     let stopSuccess = false;
@@ -786,10 +817,9 @@ ipcMain.handle('supervisor/stop', async (event, { target, serviceName }) => {
     
     for (const line of lines) {
       const trimmedLine = line.trim();
-      if (trimmedLine.includes(serviceName) && trimmedLine.includes(':')) {
-        const parts = trimmedLine.split(':');
-        const lastPart = parts[parts.length - 1].trim().toLowerCase();
-        if (lastPart === 'stopped') {
+      if (trimmedLine.startsWith(serviceName + ':')) {
+        const statePart = trimmedLine.substring(serviceName.length + 1).trim().toLowerCase();
+        if (statePart === 'stopped') {
           stopSuccess = true;
           newState = 'STOPPED';
           break;
@@ -798,9 +828,9 @@ ipcMain.handle('supervisor/stop', async (event, { target, serviceName }) => {
     }
     
     return { 
-      success: stopSuccess && result.exitCode === 0,
+      success: stopSuccess,
       serviceName: stopSuccess ? serviceName : undefined,
-      newState: newState || (stopSuccess ? 'STOPPED' : undefined),
+      newState: newState || undefined,
       output: output
     };
   } catch (error) {
@@ -832,36 +862,57 @@ ipcMain.handle('supervisor/bulk', async (event, { target, serviceNames, operatio
       const result = await promise;
       
       const output = result.output || '';
+      const outputLower = output.toLowerCase();
+      
+      // Check for errors or fatal messages - if found, operation failed
+      const hasError = outputLower.includes('error') || outputLower.includes('fatal');
+      
+      if (hasError || result.exitCode !== 0) {
+        results.push({
+          serviceName,
+          success: false,
+          error: hasError ? 'Operation failed with error' : 'Operation command failed',
+          output: output
+        });
+        continue;
+      }
+      
+      // Parse output to get new state
+      // Expected format: "serviceName: stopped" then "serviceName: started"
+      // For services with colons: "backend-group:payments: stopped" then "backend-group:payments: started"
       const lines = output.trim().split('\n');
       
       let success = false;
       let newState = null;
       
+      // Escape special regex characters in service name
+      const escapedServiceName = serviceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      
+      // Create patterns for each operation
+      const startedPattern = new RegExp(`${escapedServiceName}:\\s*started`, 'i');
+      const stoppedPattern = new RegExp(`${escapedServiceName}:\\s*stopped`, 'i');
+      
       for (const line of lines) {
         const trimmedLine = line.trim();
-        if (trimmedLine.includes(serviceName) && trimmedLine.includes(':')) {
-          const parts = trimmedLine.split(':');
-          const lastPart = parts[parts.length - 1].trim().toLowerCase();
-          if (operation === 'restart' && lastPart === 'started') {
-            success = true;
-            newState = 'RUNNING';
-            break;
-          } else if (operation === 'start' && lastPart === 'started') {
-            success = true;
-            newState = 'RUNNING';
-            break;
-          } else if (operation === 'stop' && lastPart === 'stopped') {
-            success = true;
-            newState = 'STOPPED';
-            break;
-          }
+        if (operation === 'restart' && startedPattern.test(trimmedLine)) {
+          success = true;
+          newState = 'RUNNING';
+          break;
+        } else if (operation === 'start' && startedPattern.test(trimmedLine)) {
+          success = true;
+          newState = 'RUNNING';
+          break;
+        } else if (operation === 'stop' && stoppedPattern.test(trimmedLine)) {
+          success = true;
+          newState = 'STOPPED';
+          break;
         }
       }
       
       results.push({
         serviceName,
-        success: success && result.exitCode === 0,
-        newState: newState || (success ? (operation === 'stop' ? 'STOPPED' : 'RUNNING') : undefined),
+        success: success,
+        newState: newState || undefined,
         output: output
       });
     } catch (error) {

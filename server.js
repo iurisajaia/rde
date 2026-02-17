@@ -186,6 +186,7 @@ function createRDESession() {
           if (!isPrompt(line)) {
             output.stdout.push(line.trim());
             console.log('[STDOUT] Storing line for', tracker.id, ':', line.trim().substring(0, 100));
+            console.log('[STDOUT] Total lines stored:', output.stdout.length);
             
             // Update last output time for inactivity detection
             tracker.lastOutputTime = Date.now();
@@ -356,6 +357,7 @@ function processNextCommand() {
     reject: reject,
     timeout: null,
     outputTimeout: null,
+    startTime: Date.now(),
     lastOutputTime: Date.now(),
     _earlyCompleteScheduled: false
   };
@@ -375,19 +377,27 @@ function processNextCommand() {
     }
   };
   
-  // Check for output inactivity - if no output for 1 second, complete the command
+  // Check for output inactivity - if no output for 2 seconds, complete the command
   const checkOutputActivity = () => {
     if (commandTracker.resolve && rdeProcess._currentCommand === commandTracker) {
+      const output = commandOutputs.get(commandId);
+      const hasOutput = output && output.stdout.length > 0;
       const timeSinceLastOutput = Date.now() - commandTracker.lastOutputTime;
-      // If no output for 1 second and we have some output, complete the command
-      if (timeSinceLastOutput >= 1000) {
-        const output = commandOutputs.get(commandId);
-        if (output && output.stdout.length > 0) {
-          console.log('[OUTPUT TIMEOUT] Command', commandId, 'completed due to output inactivity');
-          completeCommand();
-          return;
-        }
+      const timeSinceStart = Date.now() - commandTracker.startTime;
+      
+      // For supervisor commands, wait at least 3 seconds after last output before completing
+      // This gives time for both "stopped" and "started" messages
+      const isSupervisorCommand = command.includes('supervisorctl');
+      const minWaitTime = isSupervisorCommand ? 3000 : 2000;
+      
+      // If we have output and no new output for the wait time, complete the command
+      if (hasOutput && timeSinceLastOutput >= minWaitTime) {
+        console.log('[OUTPUT TIMEOUT] Command', commandId, 'completed due to output inactivity. Output lines:', output.stdout.length, 'Time since last output:', timeSinceLastOutput, 'ms');
+        completeCommand();
+        return;
       }
+      
+      // If no output yet, keep waiting (up to timeout)
       // Check again in 200ms
       commandTracker.outputTimeout = setTimeout(checkOutputActivity, 200);
     }
@@ -396,13 +406,20 @@ function processNextCommand() {
   // Start checking for output inactivity
   checkOutputActivity();
   
-  // Fallback timeout - reduced from 30s to 5s
+  // Determine timeout based on command type
+  // Supervisor commands may take longer, especially restart operations
+  const isSupervisorCommand = command.includes('supervisorctl');
+  const timeoutDuration = isSupervisorCommand ? 15000 : 10000; // 15s for supervisor, 10s for others
+  
+  // Fallback timeout
   commandTracker.timeout = setTimeout(() => {
     if (commandTracker.resolve && rdeProcess._currentCommand === commandTracker) {
-      console.log('[TIMEOUT] Command', commandId, 'completed due to timeout');
+      const output = commandOutputs.get(commandId);
+      const outputLength = output ? output.stdout.length : 0;
+      console.log('[TIMEOUT] Command', commandId, 'completed due to timeout. Output lines:', outputLength);
       completeCommand();
     }
-  }, 5000);
+  }, timeoutDuration);
   
   rdeProcess._currentCommand = commandTracker;
   rdeProcess.stdin.write(command + '\n');
@@ -600,12 +617,54 @@ app.post('/api/supervisor/restart', async (req, res) => {
     const { promise } = executeRemoteCommand('', `sudo supervisorctl restart ${serviceName}`, commandId);
     const result = await promise;
     
-    // Parse output to get new state
-    const lines = result.output.split('\n');
-    const statusLine = lines.find(l => l.includes(serviceName));
-    const newState = statusLine ? statusLine.split(/\s+/)[1] : 'UNKNOWN';
+    const output = result.output || '';
+    const outputLower = output.toLowerCase();
     
-    res.json({ success: true, serviceName, newState, output: result.output });
+    // Check for errors or fatal messages - if found, restart failed
+    const hasError = outputLower.includes('error') || outputLower.includes('fatal');
+    
+    if (hasError || result.exitCode !== 0) {
+      return res.json({ 
+        success: false, 
+        error: hasError ? 'Restart failed with error' : 'Restart command failed',
+        output: output 
+      });
+    }
+    
+    // Parse output to get new state
+    // Expected format: "serviceName: stopped" then "serviceName: started"
+    // For services with colons: "backend-group:payments: stopped" then "backend-group:payments: started"
+    const lines = output.trim().split('\n');
+    let restartSuccess = false;
+    let newState = null;
+    
+    console.log('[RESTART] Parsing output for service:', serviceName);
+    console.log('[RESTART] Output lines:', lines);
+    
+    // Look for pattern: serviceName: started (case insensitive)
+    // This handles both "backend-group:payments: started" and variations
+    const startedPattern = new RegExp(`${serviceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*started`, 'i');
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      console.log('[RESTART] Checking line:', trimmedLine);
+      
+      // Check if line matches the pattern "serviceName: started"
+      if (startedPattern.test(trimmedLine)) {
+        restartSuccess = true;
+        newState = 'RUNNING';
+        console.log('[RESTART] Success! Found started pattern, State:', newState);
+        break;
+      }
+    }
+    
+    console.log('[RESTART] Final result - success:', restartSuccess, 'newState:', newState);
+    
+    if (restartSuccess) {
+      res.json({ success: true, serviceName, newState, output: output });
+    } else {
+      res.json({ success: false, error: 'Could not determine restart status', output: output });
+    }
   } catch (error) {
     res.json({ success: false, error: error.message });
   }
@@ -621,10 +680,41 @@ app.post('/api/supervisor/start', async (req, res) => {
   try {
     const { promise } = executeRemoteCommand('', `sudo supervisorctl start ${serviceName}`, commandId);
     const result = await promise;
-    const lines = result.output.split('\n');
-    const statusLine = lines.find(l => l.includes(serviceName));
-    const newState = statusLine ? statusLine.split(/\s+/)[1] : 'UNKNOWN';
-    res.json({ success: true, serviceName, newState, output: result.output });
+    
+    const output = result.output || '';
+    const outputLower = output.toLowerCase();
+    const hasError = outputLower.includes('error') || outputLower.includes('fatal');
+    
+    if (hasError || result.exitCode !== 0) {
+      return res.json({ 
+        success: false, 
+        error: hasError ? 'Start failed with error' : 'Start command failed',
+        output: output 
+      });
+    }
+    
+    // Parse output: "serviceName: started"
+    const lines = output.trim().split('\n');
+    let success = false;
+    let newState = null;
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith(serviceName + ':')) {
+        const statePart = trimmedLine.substring(serviceName.length + 1).trim().toLowerCase();
+        if (statePart === 'started') {
+          success = true;
+          newState = 'RUNNING';
+          break;
+        }
+      }
+    }
+    
+    if (success) {
+      res.json({ success: true, serviceName, newState, output: output });
+    } else {
+      res.json({ success: false, error: 'Could not determine start status', output: output });
+    }
   } catch (error) {
     res.json({ success: false, error: error.message });
   }
@@ -640,10 +730,41 @@ app.post('/api/supervisor/stop', async (req, res) => {
   try {
     const { promise } = executeRemoteCommand('', `sudo supervisorctl stop ${serviceName}`, commandId);
     const result = await promise;
-    const lines = result.output.split('\n');
-    const statusLine = lines.find(l => l.includes(serviceName));
-    const newState = statusLine ? statusLine.split(/\s+/)[1] : 'UNKNOWN';
-    res.json({ success: true, serviceName, newState, output: result.output });
+    
+    const output = result.output || '';
+    const outputLower = output.toLowerCase();
+    const hasError = outputLower.includes('error') || outputLower.includes('fatal');
+    
+    if (hasError || result.exitCode !== 0) {
+      return res.json({ 
+        success: false, 
+        error: hasError ? 'Stop failed with error' : 'Stop command failed',
+        output: output 
+      });
+    }
+    
+    // Parse output: "serviceName: stopped"
+    const lines = output.trim().split('\n');
+    let success = false;
+    let newState = null;
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith(serviceName + ':')) {
+        const statePart = trimmedLine.substring(serviceName.length + 1).trim().toLowerCase();
+        if (statePart === 'stopped') {
+          success = true;
+          newState = 'STOPPED';
+          break;
+        }
+      }
+    }
+    
+    if (success) {
+      res.json({ success: true, serviceName, newState, output: output });
+    } else {
+      res.json({ success: false, error: 'Could not determine stop status', output: output });
+    }
   } catch (error) {
     res.json({ success: false, error: error.message });
   }
@@ -661,10 +782,60 @@ app.post('/api/supervisor/bulk', async (req, res) => {
     try {
       const { promise } = executeRemoteCommand('', `sudo supervisorctl ${operation} ${serviceName}`, commandId);
       const result = await promise;
-      const lines = result.output.split('\n');
-      const statusLine = lines.find(l => l.includes(serviceName));
-      const newState = statusLine ? statusLine.split(/\s+/)[1] : 'UNKNOWN';
-      results.push({ serviceName, success: true, newState, output: result.output });
+      
+      const output = result.output || '';
+      const outputLower = output.toLowerCase();
+      
+      // Check for errors or fatal messages - if found, operation failed
+      const hasError = outputLower.includes('error') || outputLower.includes('fatal');
+      
+      if (hasError || result.exitCode !== 0) {
+        results.push({
+          serviceName,
+          success: false,
+          error: hasError ? 'Operation failed with error' : 'Operation command failed',
+          output: output
+        });
+        continue;
+      }
+      
+      // Parse output to get new state
+      // Expected format: "serviceName: stopped" then "serviceName: started"
+      // For services with colons: "backend-group:payments: stopped" then "backend-group:payments: started"
+      const lines = output.trim().split('\n');
+      let success = false;
+      let newState = null;
+      
+      // Escape special regex characters in service name
+      const escapedServiceName = serviceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      
+      // Create patterns for each operation
+      const startedPattern = new RegExp(`${escapedServiceName}:\\s*started`, 'i');
+      const stoppedPattern = new RegExp(`${escapedServiceName}:\\s*stopped`, 'i');
+      
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (operation === 'restart' && startedPattern.test(trimmedLine)) {
+          success = true;
+          newState = 'RUNNING';
+          break;
+        } else if (operation === 'start' && startedPattern.test(trimmedLine)) {
+          success = true;
+          newState = 'RUNNING';
+          break;
+        } else if (operation === 'stop' && stoppedPattern.test(trimmedLine)) {
+          success = true;
+          newState = 'STOPPED';
+          break;
+        }
+      }
+      
+      results.push({
+        serviceName,
+        success: success,
+        newState: newState || undefined,
+        output: output
+      });
     } catch (error) {
       results.push({ serviceName, success: false, error: error.message });
     }
