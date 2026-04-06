@@ -8,6 +8,8 @@ CONF_SRC="${REPO_DIR}/deployment/rde/rde-ui.ini"
 SUPERVISOR_CONF="/etc/supervisor/conf.d/rde-ui.ini"
 NGINX_CONF="/etc/nginx/sites-enabled/rde-ui.conf"
 LOG_DIR="/opt/fundbox/logs"
+# Used when repo has no .nvmrc yet (e.g. old checkout); keep in sync with .nvmrc / package.json engines
+NODE_VERSION_DEFAULT="${NODE_VERSION_DEFAULT:-20}"
 
 load_nvm() {
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
@@ -27,8 +29,14 @@ load_nvm() {
     exit 1
   fi
   cd "$REPO_DIR"
-  nvm install
-  nvm use
+  if [ -f .nvmrc ]; then
+    nvm install
+    nvm use
+  else
+    echo "No .nvmrc in $REPO_DIR; using Node ${NODE_VERSION_DEFAULT} (set NODE_VERSION_DEFAULT to override)." >&2
+    nvm install "$NODE_VERSION_DEFAULT"
+    nvm use "$NODE_VERSION_DEFAULT"
+  fi
   set -u
 }
 
