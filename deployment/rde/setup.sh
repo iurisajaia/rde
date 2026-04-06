@@ -56,6 +56,7 @@ npm run build:web
 echo "Installing supervisord config..."
 sudo cp "$CONF_SRC" "$SUPERVISOR_CONF"
 sudo chmod 644 "$SUPERVISOR_CONF"
+sudo chmod 755 "${REPO_DIR}/deployment/rde/run-rde-ui.sh"
 
 echo "Installing nginx config..."
 sudo cp "${REPO_DIR}/deployment/rde/nginx-rde-ui.conf" "$NGINX_CONF"
