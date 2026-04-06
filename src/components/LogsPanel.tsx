@@ -203,24 +203,18 @@ export function LogsPanel({ target, connectionState }: LogsPanelProps) {
   };
 
   useEffect(() => {
-    if (connectionState === 'connected' && logFiles.length === 0) {
-      console.log('[LogsPanel] Connection restored, fetching log files...');
-      const timer = setTimeout(() => {
-        setLoading(true);
-        listLogFiles(target || '').then((result) => {
-          if (result.success && result.files) {
-            setLogFiles(result.files);
-            setFilteredLogFiles(result.files);
-          }
-          setLoading(false);
-        }).catch((error) => {
-          console.error('Failed to load log files:', error);
-          setLoading(false);
-        });
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [connectionState, target, listLogFiles, logFiles.length]);
+    const timer = setTimeout(() => {
+      listLogFiles(target || '').then((result) => {
+        if (result.success && result.files) {
+          setLogFiles(result.files);
+          setFilteredLogFiles(result.files);
+        }
+      }).catch((error) => {
+        console.error('Failed to load log files:', error);
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleToggleFile = (file: string) => {
     const newSelected = new Set(selectedFiles);
@@ -788,7 +782,7 @@ export function LogsPanel({ target, connectionState }: LogsPanelProps) {
     setSearchResultIndex(-1);
   }, [logMonitorSearchQuery]);
 
-  const isConnected = connectionState === 'connected';
+  const isConnected = true; // always connected — server runs on the RDE itself
   const hasActiveStream = activeStreamId !== null;
   const activeFollowedFiles = tabFollowedFiles.get(activeTab) || new Set();
 

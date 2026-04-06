@@ -9,6 +9,8 @@
     "dev:browser": "concurrently \"node server.js\" \"vite\"",
     "dev:server": "node server.js",
     "build": "tsc && vite build",
+    "build:web": "tsc --noEmitOnError false && vite build",
+    "serve": "node server.js",
     "preview": "vite preview",
     "electron": "electron .",
     "build:electron": "npm run build && electron-builder",
@@ -18,10 +20,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "http-proxy-middleware": "^2.0.6",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
+    "swagger-ui-express": "^5.0.1",
     "ws": "^8.14.2"
   },
   "devDependencies": {
@@ -52,7 +56,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "identity": null

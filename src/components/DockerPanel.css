@@ -1,0 +1,117 @@
+.docker-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 420px;
+  width: 520px;
+  max-width: 900px;
+  border-right: 1px solid var(--border-color, #ddd);
+  background-color: var(--bg-color, #fff);
+  color: var(--text-color, #000);
+  resize: horizontal;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.docker-table-container {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.docker-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.docker-table thead {
+  background-color: var(--thead-bg, #f5f5f5);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.docker-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 2px solid var(--border-color, #ddd);
+}
+
+.docker-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color-light, #eee);
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.docker-table tr:hover {
+  background-color: var(--hover-bg, #f5f5f5);
+}
+
+.docker-table tr.container-stopped {
+  opacity: 0.6;
+}
+
+.container-name {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  display: block;
+}
+
+.container-id {
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--text-color-secondary, #999);
+  display: block;
+}
+
+.container-image {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-color-secondary, #555);
+  word-break: break-all;
+}
+
+.container-uptime {
+  font-size: 11px;
+  color: var(--text-color-secondary, #888);
+  margin-top: 2px;
+}
+
+.container-ports {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-color-secondary, #555);
+  white-space: pre;
+}
+
+/* reuse state-badge colours from ServicesPanel */
+.state-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.state-running  { background: #c8e6c9; color: #2e7d32; }
+.state-stopped  { background: #ffcdd2; color: #c62828; }
+.state-exited   { background: #ffcdd2; color: #c62828; }
+.state-paused   { background: #fff9c4; color: #f57f17; }
+.state-created  { background: #e3f2fd; color: #1565c0; }
+
+[data-theme="dark"] .docker-panel {
+  --bg-color: #1e1e1e;
+  --text-color: #d4d4d4;
+  --text-color-secondary: #858585;
+  --border-color: #3e3e3e;
+  --border-color-light: #2e2e2e;
+  --hover-bg: #2e2e2e;
+  --thead-bg: #252526;
+}
+
+[data-theme="dark"] .state-running  { background: #2e7d32; color: #c8e6c9; }
+[data-theme="dark"] .state-stopped,
+[data-theme="dark"] .state-exited   { background: #c62828; color: #ffcdd2; }

@@ -1,0 +1,472 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "RDE UI API",
+    "description": "HTTP API for the RDE UI server (supervisor, logs, Docker, git). Default bind: API port 20000, static UI 20001 (see API_PORT / FRONTEND_PORT). With nginx TLS, Node often uses 127.0.0.1:28000/28001 and nginx exposes 20000/20001. WebSocket: `/api/ws` or `/rde-ui/api/ws` (not fully documented here).",
+    "version": "1.0.0"
+  },
+  "servers": [{ "url": "/", "description": "Same origin as this server" }],
+  "tags": [
+    { "name": "RDE", "description": "Connection compatibility (server runs locally on RDE)" },
+    { "name": "Supervisor", "description": "supervisorctl-backed services" },
+    { "name": "Logs", "description": "Fundbox log files under /opt/fundbox/logs" },
+    { "name": "Command", "description": "Remote shell execution (dangerous)" },
+    { "name": "Docker", "description": "Local Docker" },
+    { "name": "Git", "description": "/opt/fundbox/backend git" }
+  ],
+  "paths": {
+    "/api/rde/status": {
+      "get": {
+        "tags": ["RDE"],
+        "summary": "RDE status",
+        "responses": {
+          "200": {
+            "description": "Always connected when hitting this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "connected": { "type": "boolean" },
+                    "target": { "type": "string" },
+                    "pid": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rde/connect": {
+      "post": {
+        "tags": ["RDE"],
+        "summary": "Connect (no-op compatibility)",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/rde/disconnect": {
+      "post": {
+        "tags": ["RDE"],
+        "summary": "Disconnect (no-op compatibility)",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/supervisor/status": {
+      "get": {
+        "tags": ["Supervisor"],
+        "summary": "All processes (parsed status all)",
+        "responses": {
+          "200": {
+            "description": "List of services",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SupervisorStatusResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/services": {
+      "get": {
+        "tags": ["Supervisor"],
+        "summary": "List all supervisor processes",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SupervisorStatusResponse" }
+              }
+            }
+          },
+          "502": { "description": "supervisorctl failed" }
+        }
+      }
+    },
+    "/api/supervisor/groups": {
+      "get": {
+        "tags": ["Supervisor"],
+        "summary": "Supervisor groups (prefix before ':' in process name)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "groups": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "memberCount": { "type": "integer" },
+                          "members": { "type": "array", "items": { "type": "string" } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": { "description": "supervisorctl failed" }
+        }
+      }
+    },
+    "/api/supervisor/state": {
+      "get": {
+        "tags": ["Supervisor"],
+        "summary": "Status for one process or one group",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Full supervisor process name (mutually exclusive with group)"
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Group name; applies supervisor group:* (mutually exclusive with name)"
+          }
+        ],
+        "responses": {
+          "200": { "description": "Parsed status lines" },
+          "400": { "description": "Missing or conflicting query params" }
+        }
+      }
+    },
+    "/api/supervisor/control": {
+      "post": {
+        "tags": ["Supervisor"],
+        "summary": "Start / stop / restart by process name or whole group",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SupervisorControlBody" },
+              "examples": {
+                "byName": {
+                  "value": {
+                    "operation": "restart",
+                    "scope": "name",
+                    "identifier": "backend-group:api"
+                  }
+                },
+                "byGroup": {
+                  "value": { "operation": "stop", "scope": "group", "identifier": "backend-group" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Result with output/stderr" },
+          "400": { "description": "Invalid body" }
+        }
+      }
+    },
+    "/api/supervisor/config": {
+      "get": {
+        "tags": ["Supervisor"],
+        "summary": "Supervisord config for one process (XML-RPC getAllConfigInfo)",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Exact supervisor process name"
+          }
+        ],
+        "responses": {
+          "200": { "description": "config object from supervisord" },
+          "400": { "description": "Missing name" },
+          "404": { "description": "Process not found" },
+          "502": { "description": "RPC or script error" }
+        }
+      }
+    },
+    "/api/supervisor/restart": {
+      "post": {
+        "tags": ["Supervisor"],
+        "summary": "Restart one service (legacy)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["serviceName"],
+                "properties": { "serviceName": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/supervisor/start": {
+      "post": {
+        "tags": ["Supervisor"],
+        "summary": "Start one service (legacy)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["serviceName"],
+                "properties": { "serviceName": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/supervisor/stop": {
+      "post": {
+        "tags": ["Supervisor"],
+        "summary": "Stop one service (legacy)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["serviceName"],
+                "properties": { "serviceName": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/supervisor/bulk": {
+      "post": {
+        "tags": ["Supervisor"],
+        "summary": "Start/stop/restart many services by name",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["serviceNames", "operation"],
+                "properties": {
+                  "serviceNames": { "type": "array", "items": { "type": "string" } },
+                  "operation": { "type": "string", "enum": ["start", "stop", "restart"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/supervisor/venvs": {
+      "get": {
+        "tags": ["Supervisor"],
+        "summary": "Python versions for /opt/fundbox/venvs/*",
+        "responses": { "200": { "description": "Map of venv name to version" } }
+      }
+    },
+    "/api/logs/list": {
+      "get": {
+        "tags": ["Logs"],
+        "summary": "Allowlisted log file paths",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "files": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logs/tail": {
+      "post": {
+        "tags": ["Logs"],
+        "summary": "Tail log files (streams over WebSocket)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["files", "mode"],
+                "properties": {
+                  "files": { "type": "array", "items": { "type": "string" } },
+                  "mode": { "type": "string", "enum": ["last", "follow"] },
+                  "lines": { "type": "integer", "description": "For mode=last, default 200" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "streamId for /api/logs/stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "streamId": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logs/stop": {
+      "post": {
+        "tags": ["Logs"],
+        "summary": "Stop a tail stream",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["streamId"],
+                "properties": { "streamId": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/command/execute": {
+      "post": {
+        "tags": ["Command"],
+        "summary": "Execute shell command on RDE (streams over WebSocket)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["command"],
+                "properties": { "command": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Exit code and aggregated output" } }
+      }
+    },
+    "/api/docker/containers": {
+      "get": {
+        "tags": ["Docker"],
+        "summary": "List containers (docker ps -a)",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/docker/action": {
+      "post": {
+        "tags": ["Docker"],
+        "summary": "start | stop | restart container",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["containerId", "action"],
+                "properties": {
+                  "containerId": { "type": "string" },
+                  "action": { "type": "string", "enum": ["start", "stop", "restart"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/git/info": {
+      "get": {
+        "tags": ["Git"],
+        "summary": "Branch and short status for /opt/fundbox/backend",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/git/diff": {
+      "post": {
+        "tags": ["Git"],
+        "summary": "git diff for one file",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": { "file": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "tags": ["RDE"],
+        "summary": "OpenAPI document (this file)",
+        "responses": {
+          "200": {
+            "description": "OpenAPI JSON",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SupervisorService": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Full process name (e.g. group:program)" },
+          "group": { "type": "string", "nullable": true },
+          "program": { "type": "string" },
+          "state": { "type": "string" },
+          "extra": { "type": "string" }
+        }
+      },
+      "SupervisorStatusResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "services": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SupervisorService" }
+          }
+        }
+      },
+      "SupervisorControlBody": {
+        "type": "object",
+        "required": ["operation", "scope", "identifier"],
+        "properties": {
+          "operation": { "type": "string", "enum": ["start", "stop", "restart"] },
+          "scope": { "type": "string", "enum": ["name", "group"] },
+          "identifier": { "type": "string" }
+        }
+      }
+    }
+  }
+}

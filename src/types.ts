@@ -2,6 +2,10 @@ export type Service = {
   name: string;
   state: string;
   extra: string;
+  /** Supervisor group prefix before ':'; null/undefined when ungrouped */
+  group?: string | null;
+  /** Part after first ':' when grouped; same as name when ungrouped */
+  program?: string;
 };
 
 export type LogFile = {

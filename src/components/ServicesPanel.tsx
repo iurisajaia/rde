@@ -16,6 +16,7 @@ interface GroupedServices {
 
 export function ServicesPanel({ target, connectionState }: ServicesPanelProps) {
   const [services, setServices] = useState<Service[]>([]);
+  const [venvVersions, setVenvVersions] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -31,10 +32,13 @@ export function ServicesPanel({ target, connectionState }: ServicesPanelProps) {
   const { showToast } = useToast();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // WebSocket updates (live pushes after restart etc.)
   useEffect(() => {
     const cleanup = onSupervisorStatusResult((data) => {
-      setServices(data.services);
-      setLoading(false);
+      if (data.services?.length) {
+        setServices(data.services);
+        setLoading(false);
+      }
     });
     return cleanup;
   }, [onSupervisorStatusResult]);
@@ -66,31 +70,48 @@ export function ServicesPanel({ target, connectionState }: ServicesPanelProps) {
     }
   }, []);
 
-  // Automatically fetch supervisor status when connected
+  // Fetch venv Python versions once on mount
   useEffect(() => {
-    if (connectionState === 'connected') {
-      console.log('[ServicesPanel] Connection restored, fetching services...');
-      const timer = setTimeout(() => {
-        setLoading(true);
-        getSupervisorStatus(target || '').catch((error) => {
-          console.error('Failed to refresh status:', error);
-          setLoading(false);
-          showToast('Failed to refresh services', 'error');
-        });
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [connectionState, target, getSupervisorStatus, showToast]);
+    (window as any).electronAPI?.supervisorVenvs?.().then((result: any) => {
+      if (result?.success && result.venvs) {
+        setVenvVersions(result.venvs);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Fetch services on mount (always connected when running on RDE)
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const result = await getSupervisorStatus(target || '');
+        console.log('[ServicesPanel] supervisor status result:', result);
+        if (result?.services?.length) {
+          setServices(result.services);
+        } else {
+          console.warn('[ServicesPanel] No services in response:', result);
+          showToast('No services returned', 'warning');
+        }
+      } catch (error) {
+        console.error('[ServicesPanel] Failed to fetch services:', error);
+        showToast('Failed to load services', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleRefresh = async () => {
-    if (!isConnected) return;
     setLoading(true);
     try {
-      await getSupervisorStatus(target || '');
-      showToast('Services refreshed', 'success', 2000);
+      const result = await getSupervisorStatus(target || '');
+      if (result?.services?.length) {
+        setServices(result.services);
+        showToast('Services refreshed', 'success', 2000);
+      }
     } catch (error) {
       console.error('Failed to refresh status:', error);
-      setLoading(false);
       showToast('Failed to refresh services', 'error');
     }
   };
@@ -270,7 +291,7 @@ export function ServicesPanel({ target, connectionState }: ServicesPanelProps) {
       }, {} as GroupedServices)
     : { 'all': filteredServices };
 
-  const isConnected = connectionState === 'connected';
+  const isConnected = true; // always connected — server runs on the RDE itself
   const hasSelection = selectedServices.size > 0;
 
   return (
@@ -428,6 +449,25 @@ export function ServicesPanel({ target, connectionState }: ServicesPanelProps) {
                                   >
                                     {service.name}
                                   </span>
+                                  {(() => {
+                                    // service.name is like "backend-group:api" — venv key is "api"
+                                    const venvKey = service.name.includes(':') ? service.name.split(':')[1] : service.name;
+                                    const pyVersion = venvVersions[venvKey];
+                                    return pyVersion ? (
+                                      <span style={{
+                                        fontSize: '10px',
+                                        padding: '1px 5px',
+                                        borderRadius: '3px',
+                                        background: pyVersion.startsWith('3.10') ? '#1565c0' : '#6a1b9a',
+                                        color: '#fff',
+                                        fontFamily: 'monospace',
+                                        whiteSpace: 'nowrap',
+                                        marginLeft: '4px',
+                                      }}>
+                                        py{pyVersion}
+                                      </span>
+                                    ) : null;
+                                  })()}
                                 </div>
                               </td>
                             )}

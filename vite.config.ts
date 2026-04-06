@@ -4,7 +4,7 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
+  base: '/rde-ui/',
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -12,6 +12,17 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    proxy: {
+      // Browser uses /rde-ui/api → Express API on port 20000 (strip /rde-ui prefix)
+      '/rde-ui/api': {
+        target: 'http://127.0.0.1:20000',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/rde-ui/, ''),
+        ws: true,
+      },
     },
   },
 });

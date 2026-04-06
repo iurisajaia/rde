@@ -1,89 +1,50 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { ConnectionBar } from './components/ConnectionBar';
 import { ServicesPanel } from './components/ServicesPanel';
 import { LogsPanel } from './components/LogsPanel';
 import { CommandPanel } from './components/CommandPanel';
 import { SDKUpdatePanel } from './components/SDKUpdatePanel';
 import { GitChangesPanel } from './components/GitChangesPanel';
+import { DockerPanel } from './components/DockerPanel';
 import { ToastContainer } from './components/ToastContainer';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
-import type { ConnectionState } from './types';
-import { useIPC } from './hooks/useIPC';
 import './App.css';
 
+const TARGET = 'local';
+
 function App() {
-  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
-  const [target, setTarget] = useState<string | null>(null);
   const [showCommandPanel, setShowCommandPanel] = useState(false);
   const [showSDKPanel, setShowSDKPanel] = useState(false);
   const [showGitPanel, setShowGitPanel] = useState(false);
-  const { getConnectionStatus, onRdeStatus } = useIPC();
-
-  // Check connection status on mount to restore state after page refresh
-  useEffect(() => {
-    const checkStatus = async () => {
-      try {
-        const status = await getConnectionStatus();
-        if (status.connected) {
-          console.log('[App] Restoring connection state:', status);
-          setConnectionState('connected');
-          // Set target to empty string if not provided (default RDE)
-          setTarget(status.target || '');
-        }
-      } catch (error) {
-        console.error('[App] Failed to check connection status:', error);
-      }
-    };
-    checkStatus();
-  }, [getConnectionStatus]);
-
-  useEffect(() => {
-    const cleanup = onRdeStatus((data) => {
-      setConnectionState(data.state as ConnectionState);
-      if (data.state === 'connected' && data.message) {
-        // Extract target from message if possible, or maintain current target
-        // For now, we'll keep target separate and update it on connect
-      }
-    });
-    return cleanup;
-  }, [onRdeStatus]);
-
-  // Update target when connection succeeds
-  useEffect(() => {
-    if (connectionState === 'connected' && !target) {
-      // Target will be set by ConnectionBar component
-    } else if (connectionState === 'disconnected') {
-      setTarget(null);
-    }
-  }, [connectionState, target]);
+  const [showDockerPanel, setShowDockerPanel] = useState(false);
 
   return (
     <ThemeProvider>
       <ToastProvider>
         <div className="app">
-          <ConnectionBar 
-            onTargetChange={setTarget} 
+          <ConnectionBar
             showCommandPanel={showCommandPanel}
-            onToggleCommandPanel={() => setShowCommandPanel(!showCommandPanel)}
+            onToggleCommandPanel={() => setShowCommandPanel(p => !p)}
             showSDKPanel={showSDKPanel}
-            onToggleSDKPanel={() => setShowSDKPanel(!showSDKPanel)}
+            onToggleSDKPanel={() => setShowSDKPanel(p => !p)}
             showGitPanel={showGitPanel}
-            onToggleGitPanel={() => setShowGitPanel(!showGitPanel)}
-            target={target}
-            connectionState={connectionState}
+            onToggleGitPanel={() => setShowGitPanel(p => !p)}
+            showDockerPanel={showDockerPanel}
+            onToggleDockerPanel={() => setShowDockerPanel(p => !p)}
           />
           <div className="app-content">
-            <ServicesPanel target={target} connectionState={connectionState} />
-            <LogsPanel target={target} connectionState={connectionState} />
+            <ServicesPanel target={TARGET} connectionState="connected" />
+            <LogsPanel target={TARGET} connectionState="connected" />
+            {showDockerPanel && <DockerPanel />}
             {showSDKPanel && (
-              <SDKUpdatePanel target={target} connectionState={connectionState} />
+              <SDKUpdatePanel target={TARGET} connectionState="connected" />
             )}
             {showGitPanel && (
-              <GitChangesPanel target={target} connectionState={connectionState} />
+              <GitChangesPanel target={TARGET} connectionState="connected" />
             )}
             {showCommandPanel && (
-              <CommandPanel target={target} connectionState={connectionState} />
+              <CommandPanel target={TARGET} connectionState="connected" />
             )}
           </div>
           <ToastContainer />
@@ -94,4 +55,3 @@ function App() {
 }
 
 export default App;
-
