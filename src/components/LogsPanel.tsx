@@ -12,7 +12,7 @@ interface LogsPanelProps {
 
 type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG' | 'ALL';
 
-export function LogsPanel({ target, connectionState }: LogsPanelProps) {
+export function LogsPanel({ target }: LogsPanelProps) {
   const [logFiles, setLogFiles] = useState<string[]>([]);
   const [filteredLogFiles, setFilteredLogFiles] = useState<string[]>([]);
   const [fileSearchQuery, setFileSearchQuery] = useState('');

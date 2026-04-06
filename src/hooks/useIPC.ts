@@ -39,11 +39,15 @@ export function useIPC() {
   }, []);
 
   const getGitInfo = useCallback(async (target: string) => {
-    return window.electronAPI.gitInfo(target);
+    const api = window.electronAPI.gitInfo;
+    if (!api) return { success: false, error: 'Git is not available in this build' };
+    return api(target);
   }, []);
 
   const getGitDiff = useCallback(async (target: string, file: string) => {
-    return window.electronAPI.gitDiff(target, file);
+    const api = window.electronAPI.gitDiff;
+    if (!api) return { success: false, error: 'Git is not available in this build' };
+    return api(target, file);
   }, []);
 
   const onRdeStatus = useCallback((callback: (data: { state: string; message?: string }) => void) => {

@@ -32,7 +32,7 @@ export function GitChangesPanel({ target, connectionState }: GitChangesPanelProp
     try {
       const result = await getGitInfo(target || '');
       if (result.success) {
-        setBranch(result.branch);
+        setBranch(result.branch ?? null);
         setChanges(result.changes || []);
       } else {
         setBranch(null);

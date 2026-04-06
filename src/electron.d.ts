@@ -11,6 +11,16 @@ export interface ElectronAPI {
   logsTail: (target: string, files: string[], mode: 'last' | 'follow', lines?: number) => Promise<{ success: boolean; streamId?: string; error?: string }>;
   logsStop: (streamId: string) => Promise<{ success: boolean; error?: string }>;
   executeCommand: (target: string, command: string) => Promise<{ success: boolean; exitCode?: number; output?: string; error?: string; commandId?: string }>;
+  /** Web mock + future Electron IPC; absent in current preload.js */
+  gitInfo?: (target: string) => Promise<{
+    success: boolean;
+    branch?: string;
+    changes?: Array<{ status: string; file: string }>;
+    hasChanges?: boolean;
+    error?: string;
+  }>;
+  gitDiff?: (target: string, file: string) => Promise<{ success: boolean; diff?: string; file?: string; error?: string }>;
+  supervisorVenvs?: () => Promise<{ success: boolean; venvs?: Record<string, string>; error?: string }>;
 
   // Main → Renderer (events)
   onRdeStatus: (callback: (data: { state: string; message?: string }) => void) => void;

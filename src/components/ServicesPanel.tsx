@@ -14,7 +14,7 @@ interface GroupedServices {
   [group: string]: Service[];
 }
 
-export function ServicesPanel({ target, connectionState }: ServicesPanelProps) {
+export function ServicesPanel({ target }: ServicesPanelProps) {
   const [services, setServices] = useState<Service[]>([]);
   const [venvVersions, setVenvVersions] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');

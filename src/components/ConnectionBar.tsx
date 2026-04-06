@@ -32,7 +32,7 @@ export function ConnectionBar({
     const fetch = async () => {
       try {
         const result = await getGitInfo('');
-        setGitBranch(result.success ? result.branch : null);
+        setGitBranch(result.success && result.branch != null ? result.branch : null);
       } catch {
         setGitBranch(null);
       }
