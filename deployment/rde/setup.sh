@@ -11,6 +11,8 @@ LOG_DIR="/opt/fundbox/logs"
 
 load_nvm() {
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  # nvm.sh references unset vars (e.g. NVM_USE_OUTPUT); incompatible with set -u
+  set +u
   if [ -s "$NVM_DIR/nvm.sh" ]; then
     # shellcheck source=/dev/null
     . "$NVM_DIR/nvm.sh"
@@ -20,9 +22,14 @@ load_nvm() {
     # shellcheck source=/dev/null
     . /usr/local/nvm/nvm.sh
   else
+    set -u
     echo "nvm not found; install Node 18+ and ensure nvm.sh exists." >&2
     exit 1
   fi
+  cd "$REPO_DIR"
+  nvm install
+  nvm use
+  set -u
 }
 
 echo "=== rde-ui setup ==="
@@ -30,9 +37,6 @@ echo "=== rde-ui setup ==="
 mkdir -p "$LOG_DIR"
 
 load_nvm
-cd "$REPO_DIR"
-nvm install
-nvm use
 echo "Using Node $(node -v) / npm $(npm -v)"
 
 echo "Installing npm dependencies..."
