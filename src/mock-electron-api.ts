@@ -1,11 +1,10 @@
 // Web API — talks to the Express server running on the RDE itself.
 // All commands execute locally on the RDE; no SSH session needed.
 
-// Use Vite's BASE_URL (set by vite.config.ts `base`) so /api always resolves correctly
-// whether served at / (local dev) or /rde-ui/ (production nginx subpath).
+// Same-origin API prefix: nginx maps /rde-api/ → Express /api/ (Swagger: /rde-api/docs).
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL)
   ? import.meta.env.VITE_API_BASE_URL
-  : `${import.meta.env.BASE_URL}api`;
+  : '/rde-api';
 
 // Event listeners for WebSocket channels
 const eventListeners: Map<string, Set<Function>> = new Map();
@@ -23,10 +22,8 @@ function connectWebSocket() {
   if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL) {
     wsUrl = import.meta.env.VITE_WS_URL;
   } else if (typeof window !== 'undefined') {
-    // Use BASE_URL so the WebSocket path matches the nginx subpath (e.g. /rde-ui/api/ws)
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const base = import.meta.env.BASE_URL.replace(/\/$/, ''); // e.g. "/rde-ui"
-    wsUrl = `${proto}//${window.location.host}${base}/api/ws`;
+    wsUrl = `${proto}//${window.location.host}/rde-api/ws`;
   } else {
     wsUrl = 'ws://localhost:20000/api/ws';
   }

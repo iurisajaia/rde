@@ -1,0 +1,72 @@
+---
+description: Remote Development Environment (RDE) context — what it is and how to access it
+alwaysApply: true
+---
+
+# Remote Development Environment (RDE)
+
+RDEs are Ubuntu servers running in AWS, used as personal cloud dev environments.
+
+## Naming Convention
+
+Each RDE is named after the developer's GitHub username:
+
+```
+<github-username>-rde.fbx.im
+```
+
+## Access Methods
+
+**Via the in-house `rde` CLI (preferred):**
+```bash
+rde ssh
+```
+
+**Via raw SSH:**
+```bash
+ssh -i ~/.ssh/Dev.pem ubuntu@<github-username>-rde.fbx.im
+```
+
+## Important
+
+When asked to make code changes, always edit files **locally** in the workspace. Never SSH into the RDE to edit files directly — `rde sync` will propagate local changes to the RDE.
+
+## File Sync
+
+The `rde` CLI can sync local files to the RDE:
+
+```bash
+# Continuous sync (activate + monitor together)
+rde sync activate <repo-name>
+rde sync monitor <repo-name>
+
+# One-time sync
+rde sync now <repo-name>
+```
+
+## Services
+
+Fundbox services are managed via `supervisorctl`:
+
+```bash
+sudo supervisorctl status
+sudo supervisorctl restart <service_name>
+```
+
+## Paths
+
+| Purpose | Path |
+|---|---|
+| Fundbox repos | `/opt/fundbox/<repo_name>/` |
+| Service logs | `/opt/fundbox/logs/<service_name>.log` |
+| Virtual environments | `/opt/fundbox/venvs/<service_name>/` |
+
+Venv installation is handled by two scripts in `deployment/rde/scripts/`:
+- `change_tracker.py` — orchestrates venv creation and updates
+- `pip_installer.sh` — handles the actual pip package installation
+
+## Notes
+
+- The SSH key used is `~/.ssh/Dev.pem`
+- The default user is `ubuntu`
+- RDEs live in the AWS cloud and are shared/personal environments for development and investigation

@@ -1,0 +1,27 @@
+---
+description: Conventions for the in-repo MCP server — supervisor, Docker, logs, system metrics, safety
+globs: server.js,mcp/**
+alwaysApply: false
+---
+
+# RDE MCP server (in-repo)
+
+When adding or changing MCP-related code under `mcp/` or extending `server.js` for agent-facing APIs:
+
+## Scope
+
+Expose tools for: **supervisorctl state** (and optional start/stop/restart), **Docker** container list and optional lifecycle actions, **Fundbox service logs** under `/opt/fundbox/logs/`, and **read-only system metrics** (load, memory, disk, uptime).
+
+## Reuse
+
+Prefer extracting shared logic from `server.js` (`runLocal`, supervisor parsing, log allowlist, docker JSON lines) instead of forking behavior.
+
+## Safety
+
+- Read-only by default; name mutating tools clearly (`restart_supervisor_service`, not `run_command`).
+- Log access: allowlist `/opt/fundbox/logs/` only; reject path traversal.
+- Do not add an unrestricted shell MCP tool without explicit product need and hard limits.
+
+## Alignment
+
+Paths and RDE semantics match `.cursor/rules/rde.mdc`. Edit sources locally; deploy via normal RDE sync — do not SSH-edit on the server for app code.

@@ -640,7 +640,16 @@ webApp.use((req, _res, next) => {
   next();
 });
 
-/** Same-origin /rde-ui/api on the UI port → API (mirrors nginx :20001 block) */
+/** Same-origin /rde-api on the UI port → API (public URL; mirrors nginx) */
+const rdeApiProxy = createProxyMiddleware('/rde-api', {
+  target: `http://127.0.0.1:${API_PORT}`,
+  changeOrigin: true,
+  pathRewrite: { '^/rde-api': '/api' },
+  ws: true
+});
+webApp.use(rdeApiProxy);
+
+/** Legacy path (older nginx) */
 const rdeUiApiProxy = createProxyMiddleware('/rde-ui/api', {
   target: `http://127.0.0.1:${API_PORT}`,
   changeOrigin: true,
@@ -665,7 +674,7 @@ if (fs.existsSync(INDEX_HTML)) {
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 const apiServer = apiApp.listen(API_PORT, LISTEN_HOST, () => {
-  console.log(`[api] http://${LISTEN_HOST}:${API_PORT} (REST, WebSocket /api/ws and /rde-ui/api/ws)`);
+  console.log(`[api] http://${LISTEN_HOST}:${API_PORT} (REST, WebSocket /api/ws; public /rde-api/* via UI port)`);
   if (fs.existsSync(OPENAPI_PATH)) {
     console.log(`[api] OpenAPI / Swagger UI: http://${LISTEN_HOST}:${API_PORT}/api/docs`);
   }
@@ -685,7 +694,8 @@ apiServer.on('upgrade', (request, socket, head) => {
   const isWs =
     pathname === '/api/ws' ||
     pathname === '/ws' ||
-    pathname === '/rde-ui/api/ws';
+    pathname === '/rde-ui/api/ws' ||
+    pathname === '/rde-api/ws';
   if (isWs) {
     wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
   } else {

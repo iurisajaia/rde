@@ -16,7 +16,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // Browser uses /rde-ui/api → Express API on port 20000 (strip /rde-ui prefix)
+      '/rde-api': {
+        target: 'http://127.0.0.1:20000',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/rde-api/, '/api'),
+        ws: true,
+      },
+      // Legacy path (still proxied by server.js for old nginx)
       '/rde-ui/api': {
         target: 'http://127.0.0.1:20000',
         changeOrigin: true,

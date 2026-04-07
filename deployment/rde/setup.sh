@@ -70,6 +70,7 @@ sudo supervisorctl restart rde-ui 2>/dev/null || sudo supervisorctl start rde-ui
 echo ""
 echo "=== Done! ==="
 echo "rde-ui API:  https://bchkhaidze-fbx-rde.fbx.im:20000/ (Swagger: .../api/docs)"
-echo "rde-ui UI:   https://bchkhaidze-fbx-rde.fbx.im:20001/rde-ui/"
+echo "rde-ui UI:   https://rde-ui-bchkhaidze-fbx-rde.fbx.im/  → /rde-ui/"
+echo "rde-ui API (same host as UI):  https://rde-ui-bchkhaidze-fbx-rde.fbx.im/rde-api/docs"
 echo "Status:  sudo supervisorctl status rde-ui"
 echo "Logs:    tail -f ${LOG_DIR}/rde-ui.log"

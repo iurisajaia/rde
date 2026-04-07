@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "RDE UI API",
-    "description": "HTTP API for the RDE UI server (supervisor, logs, Docker, git). Default bind: API port 20000, static UI 20001 (see API_PORT / FRONTEND_PORT). With nginx TLS, Node often uses 127.0.0.1:28000/28001 and nginx exposes 20000/20001. WebSocket: `/api/ws` or `/rde-ui/api/ws` (not fully documented here).",
+    "description": "HTTP API for the RDE UI server (supervisor, logs, Docker, git). Default bind: API port 20000, static UI 20001 (see API_PORT / FRONTEND_PORT). With nginx TLS, Node often uses 127.0.0.1:28000/28001 and nginx exposes 20000/20001. Public UI host: WebSocket `wss://…/rde-api/ws` (same path prefix as HTTP).",
     "version": "1.0.0"
   },
   "servers": [{ "url": "/", "description": "Same origin as this server" }],
