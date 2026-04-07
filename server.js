@@ -658,13 +658,16 @@ const rdeUiApiProxy = createProxyMiddleware('/rde-ui/api', {
 });
 webApp.use(rdeUiApiProxy);
 
-webApp.get('/rde-ui', (_req, res) => res.redirect(302, '/rde-ui/'));
+// /rde-ui/ must be registered before /rde-ui — otherwise Express treats them as one route and 302 → /rde-ui/ loops.
 webApp.get('/', (_req, res) => res.redirect(302, '/rde-ui/'));
+if (fs.existsSync(INDEX_HTML)) {
+  webApp.get('/rde-ui/', (_req, res) => res.sendFile(INDEX_HTML));
+}
+webApp.get('/rde-ui', (_req, res) => res.redirect(302, '/rde-ui/'));
 if (fs.existsSync(DIST_DIR)) {
   webApp.use('/rde-ui', express.static(DIST_DIR, { index: false }));
 }
 if (fs.existsSync(INDEX_HTML)) {
-  webApp.get('/rde-ui/', (_req, res) => res.sendFile(INDEX_HTML));
   webApp.use('/rde-ui', (req, res, next) => {
     if (req.method !== 'GET') return next();
     res.sendFile(INDEX_HTML);
