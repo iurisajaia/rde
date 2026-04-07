@@ -1,10 +1,7 @@
 // Web API — talks to the Express server running on the RDE itself.
 // All commands execute locally on the RDE; no SSH session needed.
 
-// Same-origin API prefix: nginx maps /rde-api/ → Express /api/ (Swagger: /rde-api/docs).
-const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL)
-  ? import.meta.env.VITE_API_BASE_URL
-  : '/rde-api';
+import { API_BASE_URL } from './api-config';
 
 // Event listeners for WebSocket channels
 const eventListeners: Map<string, Set<Function>> = new Map();

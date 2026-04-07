@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { API_BASE_URL } from '../api-config';
 import { useToast } from '../contexts/ToastContext';
 import './DockerPanel.css';
 
@@ -11,8 +12,6 @@ interface DockerContainer {
   ports: string;
   created: string;
 }
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/rde-api');
 
 async function fetchContainers(): Promise<DockerContainer[]> {
   const res = await fetch(`${API_BASE_URL}/docker/containers`);
