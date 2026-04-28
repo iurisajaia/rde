@@ -65,12 +65,9 @@ sudo nginx -t && sudo nginx -s reload
 echo "Reloading supervisord..."
 sudo supervisorctl reread
 sudo supervisorctl update
-sudo supervisorctl restart rde-ui 2>/dev/null || sudo supervisorctl start rde-ui
 
 echo ""
 echo "=== Done! ==="
-echo "rde-ui API:  https://bchkhaidze-fbx-rde.fbx.im:20000/ (Swagger: .../api/docs)"
-echo "rde-ui UI:   https://rde-ui-bchkhaidze-fbx-rde.fbx.im/  → /rde-ui/"
-echo "rde-ui API (same host as UI):  https://rde-ui-bchkhaidze-fbx-rde.fbx.im/rde-api/docs"
-echo "Status:  sudo supervisorctl status rde-ui"
-echo "Logs:    tail -f ${LOG_DIR}/rde-ui.log"
+echo "Static UI (nginx): serve ${REPO_DIR}/dist/ under /rde-ui/ — see deployment/rde/nginx-rde-ui.conf"
+echo "Supervisor program rde-ui is disabled by default (no Node API)."
+echo "supervisorctl status rde-ui"

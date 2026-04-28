@@ -47,7 +47,7 @@ export function ConnectionBar({
       <div className="connection-bar-left">
         <div className="status-indicator">
           <span className="status-dot" style={{ backgroundColor: '#4caf50' }} />
-          <span className="status-text">Running on RDE</span>
+          <span className="status-text">UI preview</span>
         </div>
         {gitBranch && (
           <div className="git-branch-display" onClick={onToggleGitPanel} title="Click to view git changes">

@@ -14,22 +14,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  server: {
-    proxy: {
-      '/rde-api': {
-        target: 'http://127.0.0.1:20000',
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/rde-api/, '/api'),
-        ws: true,
-      },
-      // Legacy path (still proxied by server.js for old nginx)
-      '/rde-ui/api': {
-        target: 'http://127.0.0.1:20000',
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/rde-ui/, ''),
-        ws: true,
-      },
-    },
-  },
 });
-

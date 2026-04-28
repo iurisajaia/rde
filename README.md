@@ -1,98 +1,31 @@
 # RDE Control Center
 
-A web-based control center for managing RDE (Remote Development Environment) services, logs, and commands.
+React UI for exploring RDE-oriented workflows. **There is no HTTP API or MCP service in this repo.** `src/mock-electron-api.ts` wires demo fixtures so panels render without a backend.
 
-## Quick Start (Web App)
-
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-2. **Start the backend server and frontend:**
-   ```bash
-   npm run dev:browser
-   ```
-
-   This will start **BOTH**:
-   - Backend API server on `http://localhost:3000` (required!)
-   - Frontend dev server on `http://localhost:5173`
-
-   **Important:** You need BOTH servers running! The frontend (5173) connects to the backend (3000).
-
-3. **Open your browser:**
-   ```
-   http://localhost:5173
-   ```
-
-   **Troubleshooting:**
-   - If you see WebSocket connection errors, make sure the backend server is running on port 3000
-   - Check the terminal output - you should see both servers starting
-   - Backend should show: `🚀 RDE Control Center API server running on http://localhost:3000`
-   - Frontend should show: `Local: http://localhost:5173`
-
-## Development
-
-### Starting the Backend Server
-
-To start **only** the backend API server:
+## Quick start (browser, demo UI)
 
 ```bash
-npm run dev:server
-```
-
-This will start the Express.js backend server on `http://localhost:3000`.
-
-**Note:** The backend server is required for the frontend to function. You can run it separately or use `npm run dev:browser` to start both backend and frontend together.
-
-### Web Mode (Recommended)
-```bash
-npm run dev:browser
-```
-
-This starts both the backend server and frontend dev server concurrently.
-
-### Electron Mode (Legacy)
-```bash
+npm install
 npm run dev
 ```
 
-### Build for Production
+Open [http://localhost:5173/rde-ui/](http://localhost:5173/rde-ui/) (Vite dev server uses base `/rde-ui/`).
+
+## Production build (static files)
+
 ```bash
 npm run build
 ```
 
-The built files will be in the `dist/` directory.
+Output: `dist/`. Deploy by pointing nginx (or any static host) at `dist/` with URL prefix `/rde-ui/` — see `deployment/rde/nginx-rde-ui.conf`.
 
-## Configuration
+## Deployment notes
 
-The app uses environment variables for configuration. Create a `.env` file:
-
-```env
-# API Configuration
-VITE_API_BASE_URL=http://localhost:3000/api
-VITE_WS_URL=ws://localhost:3000/api/ws
-
-# Server Port (for server.js)
-PORT=3000
-```
-
-## Architecture
-
-- **Frontend**: React + TypeScript + Vite
-- **Backend**: Express.js server (`server.js`) that wraps RDE commands
-- **Real-time**: WebSocket for live updates
-
-## Features
-
-- Connect/disconnect to RDE
-- View and manage supervisor services
-- Tail and view log files
-- Execute custom commands
-- SDK update workflow
-- Dark/light theme support
+- **Supervisor** entry `rde-ui` is **disabled** by default (`autostart=false` in `deployment/rde/rde-ui.ini`) — there is no Node server to supervise.
+- **nginx** serves files from `/opt/fundbox/rde-ui/dist/` only.
 
 ## Requirements
 
 - Node.js 18+
-- `rde` command available in PATH or common locations
+
+Design docs live under [`docs/`](docs/).

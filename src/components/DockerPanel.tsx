@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { API_BASE_URL } from '../api-config';
 import { useToast } from '../contexts/ToastContext';
 import './DockerPanel.css';
 
@@ -14,29 +13,25 @@ interface DockerContainer {
 }
 
 async function fetchContainers(): Promise<DockerContainer[]> {
-  const res = await fetch(`${API_BASE_URL}/docker/containers`);
-  const data = await res.json();
-  return data.success ? data.containers : [];
+  const api = window.electronAPI.dockerContainers;
+  if (!api) return [];
+  const data = await api();
+  return data.success && Array.isArray(data.containers) ? data.containers : [];
 }
 
 async function containerAction(containerId: string, action: 'start' | 'stop' | 'restart') {
-  const res = await fetch(`${API_BASE_URL}/docker/action`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ containerId, action }),
-  });
-  return res.json();
+  const api = window.electronAPI.dockerAction;
+  if (!api) return { success: false, stderr: 'Docker is not available' };
+  return api(containerId, action);
 }
 
 function shortImage(image: string) {
-  // Strip ECR prefix, keep just the name:tag
   const parts = image.split('/');
   return parts[parts.length - 1];
 }
 
 function formatPorts(ports: string) {
   if (!ports) return null;
-  // Show just the host→container mappings, one per line
   return ports.split(', ').map(p => {
     const m = p.match(/0\.0\.0\.0:(\d+)->(\d+)/);
     return m ? `${m[1]}→${m[2]}` : null;
