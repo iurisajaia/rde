@@ -36,6 +36,71 @@ body {
   color: var(--text-color);
 }
 
+/* ─── Left panel tab switcher ─────────────────────────────────────────────── */
+
+.left-panel-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-width: 300px;
+  width: 850px;
+  max-width: 1200px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-color, #ddd);
+  background-color: var(--bg-color, #fff);
+  resize: horizontal;
+  overflow: hidden;
+}
+
+.left-panel-tabs {
+  display: flex;
+  border-bottom: 2px solid var(--border-color, #ddd);
+  flex-shrink: 0;
+  background-color: var(--bg-color, #fff);
+}
+
+.left-panel-tab {
+  padding: 8px 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-color-secondary, #666);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.left-panel-tab:hover {
+  color: var(--text-color, #000);
+}
+
+.left-panel-tab.active {
+  color: var(--primary-color, #2196f3);
+  border-bottom-color: var(--primary-color, #2196f3);
+  font-weight: 600;
+}
+
+.left-panel-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Remove the right border & resize from ServicesPanel/DockerPanel since
+   left-panel-wrapper owns them now */
+.left-panel-content .services-panel,
+.left-panel-content .services-panel-collapsed,
+.left-panel-content .docker-panel {
+  border-right: none;
+  resize: none;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  flex: 1;
+}
+
 .app-content {
   display: flex;
   flex: 1;

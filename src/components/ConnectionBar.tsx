@@ -10,8 +10,6 @@ interface ConnectionBarProps {
   onToggleSDKPanel: () => void;
   showGitPanel: boolean;
   onToggleGitPanel: () => void;
-  showDockerPanel: boolean;
-  onToggleDockerPanel: () => void;
 }
 
 export function ConnectionBar({
@@ -21,8 +19,6 @@ export function ConnectionBar({
   onToggleSDKPanel,
   showGitPanel,
   onToggleGitPanel,
-  showDockerPanel,
-  onToggleDockerPanel,
 }: ConnectionBarProps) {
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const { getGitInfo } = useIPC();
@@ -80,17 +76,6 @@ export function ConnectionBar({
           }}
         >
           🚀 SDK UPDATE
-        </button>
-        <button
-          className={`btn btn-icon ${showDockerPanel ? 'btn-active' : ''}`}
-          onClick={onToggleDockerPanel}
-          title={showDockerPanel ? 'Hide Docker' : 'Show Docker'}
-          style={{
-            background: showDockerPanel ? '#0277bd' : 'transparent',
-            color: showDockerPanel ? 'white' : 'inherit',
-          }}
-        >
-          🐳
         </button>
         <button
           className={`btn btn-icon ${showCommandPanel ? 'btn-active' : ''}`}

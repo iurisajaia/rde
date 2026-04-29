@@ -13,11 +13,13 @@ import './App.css';
 
 const TARGET = 'local';
 
+type LeftTab = 'services' | 'docker';
+
 function App() {
   const [showCommandPanel, setShowCommandPanel] = useState(false);
   const [showSDKPanel, setShowSDKPanel] = useState(false);
   const [showGitPanel, setShowGitPanel] = useState(false);
-  const [showDockerPanel, setShowDockerPanel] = useState(false);
+  const [leftTab, setLeftTab] = useState<LeftTab>('services');
 
   return (
     <ThemeProvider>
@@ -30,13 +32,31 @@ function App() {
             onToggleSDKPanel={() => setShowSDKPanel(p => !p)}
             showGitPanel={showGitPanel}
             onToggleGitPanel={() => setShowGitPanel(p => !p)}
-            showDockerPanel={showDockerPanel}
-            onToggleDockerPanel={() => setShowDockerPanel(p => !p)}
           />
           <div className="app-content">
-            <ServicesPanel target={TARGET} connectionState="connected" />
+            <div className="left-panel-wrapper">
+              <div className="left-panel-tabs">
+                <button
+                  className={`left-panel-tab ${leftTab === 'services' ? 'active' : ''}`}
+                  onClick={() => setLeftTab('services')}
+                >
+                  ⚙️ Services
+                </button>
+                <button
+                  className={`left-panel-tab ${leftTab === 'docker' ? 'active' : ''}`}
+                  onClick={() => setLeftTab('docker')}
+                >
+                  🐳 Docker
+                </button>
+              </div>
+              <div className="left-panel-content">
+                {leftTab === 'services'
+                  ? <ServicesPanel target={TARGET} connectionState="connected" />
+                  : <DockerPanel />
+                }
+              </div>
+            </div>
             <LogsPanel target={TARGET} connectionState="connected" />
-            {showDockerPanel && <DockerPanel />}
             {showSDKPanel && (
               <SDKUpdatePanel target={TARGET} connectionState="connected" />
             )}

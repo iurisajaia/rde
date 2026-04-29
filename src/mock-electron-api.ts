@@ -1,218 +1,184 @@
-/**
- * Browser-only shim: implements `window.electronAPI` with local demo data.
- * No HTTP backend — pure UI preview.
- */
-import {
-  DEMO_SERVICES,
-  DEMO_LOG_FILES,
-  DEMO_VENVS,
-  DEMO_DOCKER_CONTAINERS,
-  type DemoDockerContainer,
-} from './demo-fixtures';
-import type { Service } from './types';
+// Browser shim: calls the zero-dependency Node bridge (server.js) running on the RDE.
+// All supervisor actions execute locally via supervisorctl — no SSH, no Electron.
 
+const BASE = '/rde-api';
+
+async function post(path: string, body: object) {
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  } catch {
+    return { success: false, error: 'Network error' };
+  }
+}
+
+async function get(path: string) {
+  try {
+    const res = await fetch(`${BASE}${path}`);
+    return res.json();
+  } catch {
+    return { success: false, error: 'Network error' };
+  }
+}
+
+// Event listeners
 const eventListeners: Map<string, Set<(data: unknown) => void>> = new Map();
 
-function emitEvent(channel: string, data: unknown) {
-  eventListeners.get(channel)?.forEach((cb) => cb(data));
-}
-
-let services: Service[] = DEMO_SERVICES.map((s) => ({ ...s }));
-let dockerState: DemoDockerContainer[] = DEMO_DOCKER_CONTAINERS.map((c) => ({ ...c }));
-
-function emitSupervisorPush() {
-  emitEvent('supervisor/statusResult', { services: [...services] });
-}
+// Active SSE connections keyed by streamId (for logsStop)
+const activeEventSources = new Map<string, EventSource>();
 
 const webAPI = {
-  getConnectionStatus: async () => ({ connected: true, target: 'demo', pid: null }),
-
-  connect: async () => ({ success: true }),
-
+  getConnectionStatus: async () => ({ connected: true, target: 'local', pid: null }),
+  connect:    async () => ({ success: true }),
   disconnect: async () => ({ success: true }),
 
-  supervisorStatus: async (_target: string) => ({
-    success: true,
-    services: [...services],
-  }),
+  supervisorStatus: (_target: string) => get('/supervisor/status'),
 
-  supervisorRestart: async (_target: string, serviceName: string) => {
-    services = services.map((s) =>
-      s.name === serviceName ? { ...s, state: 'RUNNING', extra: 'restarted (demo)' } : s
-    );
-    emitSupervisorPush();
-    return { success: true, serviceName, newState: 'RUNNING', output: 'restart (demo)' };
-  },
+  supervisorRestart: (_target: string, serviceName: string) =>
+    post('/supervisor/restart', { serviceName, operation: 'restart' }),
 
-  supervisorStart: async (_target: string, serviceName: string) => {
-    services = services.map((s) =>
-      s.name === serviceName ? { ...s, state: 'RUNNING', extra: 'started (demo)' } : s
-    );
-    emitSupervisorPush();
-    return { success: true, serviceName, newState: 'RUNNING', output: 'start (demo)' };
-  },
+  supervisorStart: (_target: string, serviceName: string) =>
+    post('/supervisor/start', { serviceName, operation: 'start' }),
 
-  supervisorStop: async (_target: string, serviceName: string) => {
-    services = services.map((s) =>
-      s.name === serviceName ? { ...s, state: 'STOPPED', extra: '' } : s
-    );
-    emitSupervisorPush();
-    return { success: true, serviceName, newState: 'STOPPED', output: 'stop (demo)' };
-  },
+  supervisorStop: (_target: string, serviceName: string) =>
+    post('/supervisor/stop', { serviceName, operation: 'stop' }),
 
-  supervisorBulk: async (
-    _target: string,
-    serviceNames: string[],
-    operation: 'start' | 'stop' | 'restart'
-  ) => {
-    const results: Array<{ serviceName: string; success: boolean; newState?: string }> = [];
-    for (const serviceName of serviceNames) {
-      if (operation === 'stop') {
-        services = services.map((s) =>
-          s.name === serviceName ? { ...s, state: 'STOPPED', extra: '' } : s
-        );
-        results.push({ serviceName, success: true, newState: 'STOPPED' });
-      } else {
-        services = services.map((s) =>
-          s.name === serviceName ? { ...s, state: 'RUNNING', extra: `${operation} (demo)` } : s
-        );
-        results.push({ serviceName, success: true, newState: 'RUNNING' });
-      }
-    }
-    emitSupervisorPush();
-    return { success: true, results };
-  },
+  supervisorBulk: (_target: string, serviceNames: string[], operation: 'start' | 'stop' | 'restart') =>
+    post('/supervisor/bulk', { serviceNames, operation }),
 
-  logsList: async (_target: string) => ({
-    success: true,
-    files: [...DEMO_LOG_FILES],
-  }),
+  logsList: (_target: string) => get('/logs/list'),
 
   logsTail: async (_target: string, files: string[], mode: 'last' | 'follow', lines?: number) => {
-    const streamId = `demo-${Date.now()}`;
-    const maxLines = Math.min(lines ?? 20, 50);
-    const pick = files[0] ?? DEMO_LOG_FILES[0];
+    const n = lines ?? 200;
 
-    const emitLines = () => {
-      for (let i = 0; i < maxLines; i++) {
-        emitEvent('logs/line', {
-          streamId,
-          file: pick,
-          line: `[demo ${mode}] line ${i + 1} — ${new Date().toISOString()}`,
-        });
-      }
-      emitEvent('logs/stopped', { streamId, reason: 'complete', message: 'demo stream finished' });
-    };
-
-    if (mode === 'follow') {
-      let n = 0;
-      const tick = () => {
-        if (n >= maxLines) {
-          emitEvent('logs/stopped', { streamId, reason: 'complete', message: 'demo follow ended' });
-          return;
+    if (mode === 'last') {
+      const r = await post('/logs/tail', { files, lines: n });
+      if (!r.success) return r;
+      const streamId = `snap-${Date.now()}`;
+      const rawLines: string[] = (r.output || '').split('\n');
+      // tail uses ==> /path/to/file <== headers when tailing multiple files
+      setTimeout(() => {
+        let currentFile = files[0];
+        for (const line of rawLines) {
+          const m = line.match(/^==> (.+) <==$/);
+          if (m) { currentFile = m[1]; continue; }
+          if (line) emitEvent('logs/line', { streamId, file: currentFile, line });
         }
-        emitEvent('logs/line', {
-          streamId,
-          file: pick,
-          line: `[demo follow] ${++n} — ${new Date().toISOString()}`,
-        });
-        setTimeout(tick, 400);
-      };
-      setTimeout(tick, 100);
-    } else {
-      setTimeout(emitLines, 50);
+        emitEvent('logs/stopped', { streamId, reason: 'complete', message: 'done' });
+      }, 0);
+      return { success: true, streamId };
     }
 
-    return { success: true, streamId };
+    // follow mode — use SSE so lines stream in real time
+    const params = new URLSearchParams({
+      files: files.map(f => encodeURIComponent(f)).join(','),
+      lines: String(n),
+    });
+    const es = new EventSource(`${BASE}/logs/stream?${params}`);
+    let streamId: string | null = null;
+
+    es.addEventListener('streamId', (e: MessageEvent) => {
+      streamId = JSON.parse(e.data).streamId;
+      // Register so logsStop can close it
+      if (streamId) activeEventSources.set(streamId, es);
+    });
+
+    es.addEventListener('line', (e: MessageEvent) => {
+      const data = JSON.parse(e.data);
+      emitEvent('logs/line', data);
+    });
+
+    es.addEventListener('stopped', (e: MessageEvent) => {
+      const data = JSON.parse(e.data);
+      emitEvent('logs/stopped', { ...data, message: 'stream ended' });
+      es.close();
+      if (streamId) activeEventSources.delete(streamId);
+    });
+
+    es.onerror = () => {
+      if (streamId) {
+        emitEvent('logs/stopped', { streamId, reason: 'error', message: 'connection lost' });
+        activeEventSources.delete(streamId);
+      }
+      es.close();
+    };
+
+    // Return a temporary streamId immediately; the real one arrives via SSE
+    const tempId = `sse-${Date.now()}`;
+    return { success: true, streamId: tempId };
   },
 
-  logsStop: async (_streamId: string) => ({ success: true }),
+  logsStop: async (streamId: string) => {
+    const es = activeEventSources.get(streamId);
+    if (es) { es.close(); activeEventSources.delete(streamId); }
+    // Also tell server to kill the child process
+    await post('/logs/stop', { streamId });
+    return { success: true };
+  },
 
   executeCommand: async (_target: string, command: string) => {
-    const commandId = `cmd-demo-${Date.now()}`;
-    setTimeout(() => {
-      emitEvent('command/output', {
-        id: commandId,
-        source: 'stdout',
-        text: `[demo] $ ${command}\n(exit 0 — no shell attached)\n`,
-      });
-    }, 30);
-    return { success: true, exitCode: 0, output: '', commandId };
+    const r = await post('/command/execute', { command });
+    const commandId = `cmd-${Date.now()}`;
+    if (r.output) {
+      setTimeout(() => emitEvent('command/output', { id: commandId, source: 'stdout', text: r.output }), 0);
+    }
+    return { ...r, commandId };
   },
 
-  supervisorVenvs: async () => ({ success: true, venvs: { ...DEMO_VENVS } }),
+  supervisorVenvs: () => get('/supervisor/venvs'),
 
-  gitInfo: async (_target: string) => ({
-    success: true,
-    branch: 'demo/ui-only',
-    hasChanges: true,
-    changes: [
-      { status: 'M', file: 'src/App.tsx' },
-      { status: '??', file: 'src/demo-fixtures.ts' },
-    ],
-  }),
+  gitInfo:  async (_target: string) => ({ success: false, error: 'Not available' }),
+  gitDiff:  async (_target: string, _file: string) => ({ success: false, error: 'Not available' }),
 
-  gitDiff: async (_target: string, file: string) => ({
-    success: true,
-    file,
-    diff: `--- a/${file}\n+++ b/${file}\n@@ -0,0 +1,3 @@\n+demo diff — no git backend\n+…\n`,
-  }),
-
-  dockerContainers: async () => ({
-    success: true,
-    containers: dockerState.map((c) => ({ ...c })),
-  }),
-
-  dockerAction: async (containerId: string, action: 'start' | 'stop' | 'restart') => {
-    dockerState = dockerState.map((c) => {
-      if (c.id !== containerId) return c;
-      if (action === 'stop') return { ...c, state: 'exited', status: 'Exited (demo)' };
-      return { ...c, state: 'running', status: 'Up (demo)' };
-    });
-    return { success: true, output: `docker ${action} ${containerId} (demo)` };
-  },
+  dockerContainers: () => get('/docker/containers'),
+  dockerAction: (containerId: string, action: 'start' | 'stop' | 'restart') =>
+    post('/docker/action', { containerId, action }),
 
   onRdeStatus: (callback: (data: { state: string; message?: string }) => void) => {
-    if (!eventListeners.has('rde/status')) eventListeners.set('rde/status', new Set());
-    eventListeners.get('rde/status')!.add(callback as (data: unknown) => void);
-    return () => eventListeners.get('rde/status')?.delete(callback as (data: unknown) => void);
+    addListener('rde/status', callback as (d: unknown) => void);
+    return () => removeListener('rde/status', callback as (d: unknown) => void);
   },
 
-  onSupervisorStatusResult: (callback: (data: { services: Service[] }) => void) => {
-    if (!eventListeners.has('supervisor/statusResult')) eventListeners.set('supervisor/statusResult', new Set());
-    eventListeners.get('supervisor/statusResult')!.add(callback as (data: unknown) => void);
-    return () => eventListeners.get('supervisor/statusResult')?.delete(callback as (data: unknown) => void);
+  onSupervisorStatusResult: (callback: (data: { services: any[] }) => void) => {
+    addListener('supervisor/statusResult', callback as (d: unknown) => void);
+    return () => removeListener('supervisor/statusResult', callback as (d: unknown) => void);
   },
 
-  onCommandOutput: (
-    callback: (data: { id: string; source: 'stdout' | 'stderr'; text: string }) => void
-  ) => {
-    if (!eventListeners.has('command/output')) eventListeners.set('command/output', new Set());
-    eventListeners.get('command/output')!.add(callback as (data: unknown) => void);
-    return () => eventListeners.get('command/output')?.delete(callback as (data: unknown) => void);
+  onCommandOutput: (callback: (data: { id: string; source: 'stdout' | 'stderr'; text: string }) => void) => {
+    addListener('command/output', callback as (d: unknown) => void);
+    return () => removeListener('command/output', callback as (d: unknown) => void);
   },
 
-  onLogsLine: (
-    callback: (data: { streamId: string; file: string; line: string }) => void
-  ) => {
-    if (!eventListeners.has('logs/line')) eventListeners.set('logs/line', new Set());
-    eventListeners.get('logs/line')!.add(callback as (data: unknown) => void);
-    return () => eventListeners.get('logs/line')?.delete(callback as (data: unknown) => void);
+  onLogsLine: (callback: (data: { streamId: string; file: string; line: string }) => void) => {
+    addListener('logs/line', callback as (d: unknown) => void);
+    return () => removeListener('logs/line', callback as (d: unknown) => void);
   },
 
-  onLogsStopped: (
-    callback: (data: { streamId: string; reason: string; message?: string }) => void
-  ) => {
-    if (!eventListeners.has('logs/stopped')) eventListeners.set('logs/stopped', new Set());
-    eventListeners.get('logs/stopped')!.add(callback as (data: unknown) => void);
-    return () => eventListeners.get('logs/stopped')?.delete(callback as (data: unknown) => void);
+  onLogsStopped: (callback: (data: { streamId: string; reason: string; message?: string }) => void) => {
+    addListener('logs/stopped', callback as (d: unknown) => void);
+    return () => removeListener('logs/stopped', callback as (d: unknown) => void);
   },
 
-  removeAllListeners: (channel: string) => {
-    eventListeners.delete(channel);
-  },
+  removeAllListeners: (channel: string) => { eventListeners.delete(channel); },
 };
 
-if (typeof window !== 'undefined' && !window.electronAPI) {
-  (window as unknown as { electronAPI: typeof webAPI }).electronAPI = webAPI;
+function addListener(channel: string, cb: (d: unknown) => void) {
+  if (!eventListeners.has(channel)) eventListeners.set(channel, new Set());
+  eventListeners.get(channel)!.add(cb);
+}
+
+function removeListener(channel: string, cb: (d: unknown) => void) {
+  eventListeners.get(channel)?.delete(cb);
+}
+
+function emitEvent(channel: string, data: unknown) {
+  eventListeners.get(channel)?.forEach(cb => cb(data));
+}
+
+if (typeof window !== 'undefined' && !(window as any).electronAPI) {
+  (window as any).electronAPI = webAPI;
 }

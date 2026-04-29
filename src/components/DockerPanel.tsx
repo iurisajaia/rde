@@ -44,6 +44,16 @@ export function DockerPanel() {
   const [pending, setPending] = useState<Set<string>>(new Set());
   const { showToast } = useToast();
 
+  const handleOpenLogs = useCallback((container: DockerContainer) => {
+    // Docker logs are surfaced via `docker logs` piped into a temp file path.
+    // We use a synthetic path so LogsPanel can identify the stream.
+    const syntheticPath = `/docker/${container.name}`;
+    window.dispatchEvent(new CustomEvent('openLogFile', {
+      detail: { file: syntheticPath, serviceName: container.name },
+    }));
+    showToast(`Opening logs for ${container.name}`, 'info', 2000);
+  }, [showToast]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -156,6 +166,13 @@ export function DockerPanel() {
                             </button>
                           </>
                         )}
+                        <button
+                          className="btn btn-small btn-icon"
+                          onClick={() => handleOpenLogs(c)}
+                          title="Open logs"
+                        >
+                          📋
+                        </button>
                       </div>
                     </td>
                   </tr>

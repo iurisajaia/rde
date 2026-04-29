@@ -1,15 +1,13 @@
 {
   "name": "rde-control-center",
   "version": "1.0.0",
-  "description": "React UI for RDE control (demo fixtures, no backend)",
+  "description": "RDE supervisor UI",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "dev:server": "node server.js",
     "build:web": "tsc --noEmitOnError false && vite build",
-    "preview": "vite preview"
+    "serve": "node server.js"
   },
-  "keywords": [],
-  "author": "",
   "license": "ISC",
   "engines": {
     "node": ">=18"
