@@ -130,6 +130,8 @@ const webAPI = {
   },
 
   supervisorVenvs: () => get('/supervisor/venvs'),
+  supervisorProcs: () => get('/supervisor/procs'),
+  machineStats: () => get('/machine/stats'),
 
   gitInfo:  async (_target: string) => ({ success: false, error: 'Not available' }),
   gitDiff:  async (_target: string, _file: string) => ({ success: false, error: 'Not available' }),

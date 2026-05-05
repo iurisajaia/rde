@@ -1,9 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Service } from '../types';
 import { useIPC } from '../hooks/useIPC';
 import { useToast } from '../contexts/ToastContext';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { MachineStats } from './MachineStats';
 import './ServicesPanel.css';
+
+interface ProcInfo { name: string; pid: number | null; cpu: number | null; memKb: number | null }
+
+function fmtMem(kb: number | null): string {
+  if (kb == null) return '';
+  if (kb >= 1024 * 1024) return `${(kb / 1024 / 1024).toFixed(1)}G`;
+  if (kb >= 1024) return `${(kb / 1024).toFixed(0)}M`;
+  return `${kb}K`;
+}
 
 interface ServicesPanelProps {
   target: string | null;
@@ -17,6 +27,7 @@ interface GroupedServices {
 export function ServicesPanel({ target }: ServicesPanelProps) {
   const [services, setServices] = useState<Service[]>([]);
   const [venvVersions, setVenvVersions] = useState<Record<string, string>>({});
+  const [procs, setProcs] = useState<Record<string, ProcInfo>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -78,6 +89,24 @@ export function ServicesPanel({ target }: ServicesPanelProps) {
       }
     }).catch(() => {});
   }, []);
+
+  // Poll CPU/mem usage per service every 5s
+  const fetchProcs = useCallback(async () => {
+    try {
+      const r = await (window as any).electronAPI?.supervisorProcs?.();
+      if (r?.success && Array.isArray(r.procs)) {
+        const map: Record<string, ProcInfo> = {};
+        for (const p of r.procs) map[p.name] = p;
+        setProcs(map);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchProcs();
+    const id = setInterval(fetchProcs, 5000);
+    return () => clearInterval(id);
+  }, [fetchProcs]);
 
   // Fetch services on mount (always connected when running on RDE)
   useEffect(() => {
@@ -254,12 +283,18 @@ export function ServicesPanel({ target }: ServicesPanelProps) {
     });
   };
 
-  const handleSelectAll = () => {
-    if (selectedServices.size === filteredServices.length) {
-      setSelectedServices(new Set());
-    } else {
-      setSelectedServices(new Set(filteredServices.map(s => s.name)));
-    }
+  const handleSelectGroup = (groupServices: Service[]) => {
+    const groupNames = groupServices.map(s => s.name);
+    const allSelected = groupNames.every(n => selectedServices.has(n));
+    setSelectedServices(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        groupNames.forEach(n => next.delete(n));
+      } else {
+        groupNames.forEach(n => next.add(n));
+      }
+      return next;
+    });
   };
 
   const handleCopyServiceName = (serviceName: string) => {
@@ -309,6 +344,7 @@ export function ServicesPanel({ target }: ServicesPanelProps) {
         </div>
       ) : (
         <div className="services-panel">
+          <MachineStats />
           <div className="panel-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
@@ -417,13 +453,14 @@ export function ServicesPanel({ target }: ServicesPanelProps) {
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                             <input
                               type="checkbox"
-                              checked={groupServices.every(s => selectedServices.has(s.name))}
-                              onChange={handleSelectAll}
+                              checked={groupServices.length > 0 && groupServices.every(s => selectedServices.has(s.name))}
+                              onChange={() => handleSelectGroup(groupServices)}
                             />
                             Service
                           </label>
                         </th>}
                         {showColumns.state && <th>State</th>}
+                        <th style={{ whiteSpace: 'nowrap' }}>CPU / Mem</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -478,6 +515,17 @@ export function ServicesPanel({ target }: ServicesPanelProps) {
                                 </span>
                               </td>
                             )}
+                            <td>
+                              {(() => {
+                                const p = procs[service.name];
+                                if (!p || service.state !== 'RUNNING') return <span style={{ color: 'var(--text-color-secondary)', fontSize: '11px' }}>—</span>;
+                                return (
+                                  <span style={{ fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'nowrap', color: 'var(--text-color-secondary)' }}>
+                                    {p.cpu != null ? `${p.cpu.toFixed(1)}%` : '?'} · {fmtMem(p.memKb)}
+                                  </span>
+                                );
+                              })()}
+                            </td>
                             <td>
                               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                                 {service.state !== 'RUNNING' && (

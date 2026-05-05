@@ -259,6 +259,80 @@ async function handleDockerContainers(res) {
   json(res, 200, { success: true, containers });
 }
 
+// GET /api/machine/stats — CPU, memory, disk
+async function handleMachineStats(res) {
+  const [cpuMem, disk, loadAvg] = await Promise.all([
+    // vmstat: one snapshot line — us sy id wa (columns 13-16 in vmstat -n 1 1)
+    runLocal("top -bn1 | grep '^%Cpu' | awk '{print $2+$4}'"),
+    runLocal("df -h / | awk 'NR==2{print $2,$3,$4,$5}'"),
+    runLocal("cat /proc/loadavg"),
+  ]);
+
+  // Memory via /proc/meminfo
+  const memInfo = await runLocal("awk '/^MemTotal|^MemAvailable/{print $1,$2}' /proc/meminfo");
+  const memLines = memInfo.output.trim().split('\n');
+  let memTotalKb = 0, memAvailKb = 0;
+  for (const l of memLines) {
+    const [key, val] = l.split(/\s+/);
+    if (key === 'MemTotal:') memTotalKb = parseInt(val);
+    if (key === 'MemAvailable:') memAvailKb = parseInt(val);
+  }
+  const memUsedKb = memTotalKb - memAvailKb;
+
+  const diskParts = disk.output.trim().split(/\s+/);
+  const loadParts = loadAvg.output.trim().split(/\s+/);
+
+  json(res, 200, {
+    success: true,
+    cpu: {
+      usedPct: parseFloat(cpuMem.output.trim()) || 0,
+    },
+    memory: {
+      totalKb: memTotalKb,
+      usedKb: memUsedKb,
+      availKb: memAvailKb,
+      usedPct: memTotalKb ? Math.round((memUsedKb / memTotalKb) * 100) : 0,
+    },
+    disk: {
+      total: diskParts[0] || '?',
+      used: diskParts[1] || '?',
+      avail: diskParts[2] || '?',
+      usedPct: parseInt(diskParts[3]) || 0,
+    },
+    load: {
+      avg1: parseFloat(loadParts[0]) || 0,
+      avg5: parseFloat(loadParts[1]) || 0,
+      avg15: parseFloat(loadParts[2]) || 0,
+    },
+  });
+}
+
+// GET /api/supervisor/procs — CPU + memory usage per running supervisor service
+async function handleSupervisorProcs(res) {
+  // Get PIDs from supervisorctl status
+  const sr = await runLocal('sudo supervisorctl status all');
+  const services = parseServices(sr.output).filter(s => s.state === 'RUNNING');
+
+  // supervisorctl pid <name> returns the PID
+  const results = await Promise.all(services.map(async (svc) => {
+    const pidResult = await runLocal(`sudo supervisorctl pid ${quote(svc.name)}`);
+    const pid = parseInt(pidResult.output.trim());
+    if (!pid || isNaN(pid)) return { name: svc.name, pid: null, cpu: null, mem: null };
+
+    // ps -p PID -o %cpu,rss --no-headers
+    const ps = await runLocal(`ps -p ${pid} -o %cpu,rss --no-headers 2>/dev/null`);
+    const parts = ps.output.trim().split(/\s+/);
+    return {
+      name: svc.name,
+      pid,
+      cpu: parseFloat(parts[0]) || 0,
+      memKb: parseInt(parts[1]) || 0,
+    };
+  }));
+
+  json(res, 200, { success: true, procs: results });
+}
+
 async function handleDockerAction(req, res) {
   const body = await readBody(req);
   const { containerId, action } = body;
@@ -299,6 +373,8 @@ const server = http.createServer(async (req, res) => {
     if (url === '/api/command/execute'    && method === 'POST') return await handleCommand(req, res);
     if (url === '/api/docker/containers'  && method === 'GET')  return await handleDockerContainers(res);
     if (url === '/api/docker/action'      && method === 'POST') return await handleDockerAction(req, res);
+    if (url === '/api/machine/stats'      && method === 'GET')  return await handleMachineStats(res);
+    if (url === '/api/supervisor/procs'   && method === 'GET')  return await handleSupervisorProcs(res);
     if (url === '/api/rde/status'         && method === 'GET')  return json(res, 200, { connected: true, target: 'local' });
     json(res, 404, { error: 'Not found' });
   } catch (e) {
