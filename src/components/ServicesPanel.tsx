@@ -40,20 +40,31 @@ export function ServicesPanel({ target }: ServicesPanelProps) {
     state: true,
     extra: false,
   });
-  const { getSupervisorStatus, restartService, startService, stopService, bulkServiceOperation, onSupervisorStatusResult } = useIPC();
+  const { getSupervisorStatus, restartService, startService, stopService, bulkServiceOperation } = useIPC();
   const { showToast } = useToast();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // WebSocket updates (live pushes after restart etc.)
+  // Subscribe to supervisor-status via WebSocket — server pushes every 10s
+  // and immediately after any control action.
   useEffect(() => {
-    const cleanup = onSupervisorStatusResult((data) => {
-      if (data.services?.length) {
-        setServices(data.services);
+    send({ type: 'subscribe:supervisor-status' });
+
+    const offStatus = on('supervisor-status', (msg) => {
+      const services = msg.services as Service[] | undefined;
+      if (Array.isArray(services) && services.length) {
+        setServices(services);
         setLoading(false);
       }
     });
-    return cleanup;
-  }, [onSupervisorStatusResult]);
+
+    const offOpen = on('ws:open', () => send({ type: 'subscribe:supervisor-status' }));
+
+    return () => {
+      send({ type: 'unsubscribe:supervisor-status' });
+      offStatus();
+      offOpen();
+    };
+  }, []);
 
   // Keyboard shortcuts
   useKeyboardShortcuts([
@@ -135,18 +146,12 @@ export function ServicesPanel({ target }: ServicesPanelProps) {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleRefresh = async () => {
+  const handleRefresh = () => {
     setLoading(true);
-    try {
-      const result = await getSupervisorStatus(target || '');
-      if (result?.services?.length) {
-        setServices(result.services);
-        showToast('Services refreshed', 'success', 2000);
-      }
-    } catch (error) {
-      console.error('Failed to refresh status:', error);
-      showToast('Failed to refresh services', 'error');
-    }
+    // Request an immediate one-shot push from the server over WS
+    send({ type: 'supervisor:status' });
+    showToast('Services refreshed', 'success', 2000);
+    // loading cleared when the supervisor-status WS message arrives
   };
 
   const showNotification = (title: string, body: string) => {
