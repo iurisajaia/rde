@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { send, on } from '../hooks/useWebSocket';
 import './MachineStats.css';
 
 interface MachineStatsData {
@@ -23,25 +24,32 @@ function StatBar({ pct, warn = 70, danger = 90 }: { pct: number; warn?: number; 
   );
 }
 
-const REFRESH_MS = 5000;
-
 export function MachineStats() {
   const [stats, setStats] = useState<MachineStatsData | null>(null);
   const [error, setError] = useState(false);
 
-  const fetch_ = useCallback(async () => {
-    try {
-      const r = await (window as any).electronAPI?.machineStats?.();
-      if (r?.success) { setStats(r); setError(false); }
-      else setError(true);
-    } catch { setError(true); }
-  }, []);
-
   useEffect(() => {
-    fetch_();
-    const id = setInterval(fetch_, REFRESH_MS);
-    return () => clearInterval(id);
-  }, [fetch_]);
+    // Subscribe — server pushes every 5s
+    send({ type: 'subscribe:stats' });
+
+    const off = on('stats', (msg) => {
+      if (msg.success && msg.cpu) {
+        setStats(msg as unknown as MachineStatsData);
+        setError(false);
+      } else {
+        setError(true);
+      }
+    });
+
+    // Re-subscribe after reconnect
+    const offOpen = on('ws:open', () => send({ type: 'subscribe:stats' }));
+
+    return () => {
+      send({ type: 'unsubscribe:stats' });
+      off();
+      offOpen();
+    };
+  }, []);
 
   if (error) return <div className="machine-stats machine-stats-error">⚠ Stats unavailable</div>;
   if (!stats) return <div className="machine-stats machine-stats-loading">Loading stats…</div>;

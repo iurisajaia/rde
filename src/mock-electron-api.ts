@@ -1,5 +1,9 @@
 // Browser shim: calls the zero-dependency Node bridge (server.js) running on the RDE.
 // All supervisor actions execute locally via supervisorctl — no SSH, no Electron.
+// Stats, procs, log streaming, and supervisor status push are over WebSocket (/rde-api/ws).
+// Control actions (start/stop/restart) remain HTTP POST.
+
+import { send, on } from './hooks/useWebSocket';
 
 const BASE = '/rde-api';
 
@@ -25,18 +29,55 @@ async function get(path: string) {
   }
 }
 
-// Event listeners
+// ─── Event listeners (internal pub/sub for components) ───────────────────────
+
 const eventListeners: Map<string, Set<(data: unknown) => void>> = new Map();
 
-// Active SSE connections keyed by streamId (for logsStop)
-const activeEventSources = new Map<string, EventSource>();
+function addListener(channel: string, cb: (d: unknown) => void) {
+  if (!eventListeners.has(channel)) eventListeners.set(channel, new Set());
+  eventListeners.get(channel)!.add(cb);
+}
+
+function removeListener(channel: string, cb: (d: unknown) => void) {
+  eventListeners.get(channel)?.delete(cb);
+}
+
+function emitEvent(channel: string, data: unknown) {
+  eventListeners.get(channel)?.forEach(cb => cb(data));
+}
+
+// ─── Wire WS → internal events ───────────────────────────────────────────────
+
+on('logs:line',    (msg) => emitEvent('logs/line',    { streamId: msg.streamId, file: msg.file, line: msg.line }));
+on('logs:stopped', (msg) => emitEvent('logs/stopped', { streamId: msg.streamId, reason: msg.reason, message: 'stream ended' }));
+on('supervisor-status', (msg) => {
+  if (msg.services) emitEvent('supervisor/statusResult', { services: msg.services });
+});
+on('stats', (msg) => emitEvent('machine/stats', msg));
+on('procs', (msg) => emitEvent('supervisor/procs', msg));
+
+// ─── API ─────────────────────────────────────────────────────────────────────
 
 const webAPI = {
   getConnectionStatus: async () => ({ connected: true, target: 'local', pid: null }),
   connect:    async () => ({ success: true }),
   disconnect: async () => ({ success: true }),
 
-  supervisorStatus: (_target: string) => get('/supervisor/status'),
+  supervisorStatus: (_target: string) => {
+    // One-shot fetch over WS; falls back to HTTP if WS not ready
+    return new Promise<any>((resolve) => {
+      const off = on('supervisor-status', (msg) => {
+        off();
+        resolve({ success: true, services: msg.services });
+      });
+      send({ type: 'supervisor:status' });
+      // Fallback: if no WS response within 3s, use HTTP
+      setTimeout(() => {
+        off();
+        get('/supervisor/status').then(resolve);
+      }, 3000);
+    });
+  },
 
   supervisorRestart: (_target: string, serviceName: string) =>
     post('/supervisor/restart', { serviceName, operation: 'restart' }),
@@ -54,69 +95,19 @@ const webAPI = {
 
   logsTail: async (_target: string, files: string[], mode: 'last' | 'follow', lines?: number) => {
     const n = lines ?? 200;
+    const streamId = `ws-${mode}-${Date.now()}`;
 
     if (mode === 'last') {
-      const r = await post('/logs/tail', { files, lines: n });
-      if (!r.success) return r;
-      const streamId = `snap-${Date.now()}`;
-      const rawLines: string[] = (r.output || '').split('\n');
-      // tail uses ==> /path/to/file <== headers when tailing multiple files
-      setTimeout(() => {
-        let currentFile = files[0];
-        for (const line of rawLines) {
-          const m = line.match(/^==> (.+) <==$/);
-          if (m) { currentFile = m[1]; continue; }
-          if (line) emitEvent('logs/line', { streamId, file: currentFile, line });
-        }
-        emitEvent('logs/stopped', { streamId, reason: 'complete', message: 'done' });
-      }, 0);
-      return { success: true, streamId };
+      send({ type: 'logs:tail', id: streamId, files, lines: n });
+    } else {
+      send({ type: 'logs:follow', id: streamId, files, lines: n });
     }
 
-    // follow mode — use SSE so lines stream in real time
-    const params = new URLSearchParams({
-      files: files.map(f => encodeURIComponent(f)).join(','),
-      lines: String(n),
-    });
-    const es = new EventSource(`${BASE}/logs/stream?${params}`);
-    let streamId: string | null = null;
-
-    es.addEventListener('streamId', (e: MessageEvent) => {
-      streamId = JSON.parse(e.data).streamId;
-      // Register so logsStop can close it
-      if (streamId) activeEventSources.set(streamId, es);
-    });
-
-    es.addEventListener('line', (e: MessageEvent) => {
-      const data = JSON.parse(e.data);
-      emitEvent('logs/line', data);
-    });
-
-    es.addEventListener('stopped', (e: MessageEvent) => {
-      const data = JSON.parse(e.data);
-      emitEvent('logs/stopped', { ...data, message: 'stream ended' });
-      es.close();
-      if (streamId) activeEventSources.delete(streamId);
-    });
-
-    es.onerror = () => {
-      if (streamId) {
-        emitEvent('logs/stopped', { streamId, reason: 'error', message: 'connection lost' });
-        activeEventSources.delete(streamId);
-      }
-      es.close();
-    };
-
-    // Return a temporary streamId immediately; the real one arrives via SSE
-    const tempId = `sse-${Date.now()}`;
-    return { success: true, streamId: tempId };
+    return { success: true, streamId };
   },
 
   logsStop: async (streamId: string) => {
-    const es = activeEventSources.get(streamId);
-    if (es) { es.close(); activeEventSources.delete(streamId); }
-    // Also tell server to kill the child process
-    await post('/logs/stop', { streamId });
+    send({ type: 'logs:stop', streamId });
     return { success: true };
   },
 
@@ -130,8 +121,18 @@ const webAPI = {
   },
 
   supervisorVenvs: () => get('/supervisor/venvs'),
-  supervisorProcs: () => get('/supervisor/procs'),
-  machineStats: () => get('/machine/stats'),
+
+  // Stats and procs are now WS-pushed; these subscribe and return a sentinel
+  // so that components using the WS hook don't need to poll.
+  machineStats: () => {
+    send({ type: 'subscribe:stats' });
+    return Promise.resolve({ success: true, _wsSubscribed: true });
+  },
+
+  supervisorProcs: () => {
+    send({ type: 'subscribe:procs' });
+    return Promise.resolve({ success: true, _wsSubscribed: true });
+  },
 
   gitInfo:  async (_target: string) => ({ success: false, error: 'Not available' }),
   gitDiff:  async (_target: string, _file: string) => ({ success: false, error: 'Not available' }),
@@ -167,19 +168,6 @@ const webAPI = {
 
   removeAllListeners: (channel: string) => { eventListeners.delete(channel); },
 };
-
-function addListener(channel: string, cb: (d: unknown) => void) {
-  if (!eventListeners.has(channel)) eventListeners.set(channel, new Set());
-  eventListeners.get(channel)!.add(cb);
-}
-
-function removeListener(channel: string, cb: (d: unknown) => void) {
-  eventListeners.get(channel)?.delete(cb);
-}
-
-function emitEvent(channel: string, data: unknown) {
-  eventListeners.get(channel)?.forEach(cb => cb(data));
-}
 
 if (typeof window !== 'undefined' && !(window as any).electronAPI) {
   (window as any).electronAPI = webAPI;

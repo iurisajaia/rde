@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Service } from '../types';
 import { useIPC } from '../hooks/useIPC';
 import { useToast } from '../contexts/ToastContext';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { MachineStats } from './MachineStats';
+import { send, on } from '../hooks/useWebSocket';
 import './ServicesPanel.css';
 
 interface ProcInfo { name: string; pid: number | null; cpu: number | null; memKb: number | null }
@@ -90,23 +91,26 @@ export function ServicesPanel({ target }: ServicesPanelProps) {
     }).catch(() => {});
   }, []);
 
-  // Poll CPU/mem usage per service every 5s
-  const fetchProcs = useCallback(async () => {
-    try {
-      const r = await (window as any).electronAPI?.supervisorProcs?.();
-      if (r?.success && Array.isArray(r.procs)) {
+  // Subscribe to per-service CPU/mem via WebSocket (server pushes every 5s)
+  useEffect(() => {
+    send({ type: 'subscribe:procs' });
+
+    const off = on('procs', (msg) => {
+      if (msg.success && Array.isArray(msg.procs)) {
         const map: Record<string, ProcInfo> = {};
-        for (const p of r.procs) map[p.name] = p;
+        for (const p of msg.procs as ProcInfo[]) map[p.name] = p;
         setProcs(map);
       }
-    } catch {}
-  }, []);
+    });
 
-  useEffect(() => {
-    fetchProcs();
-    const id = setInterval(fetchProcs, 5000);
-    return () => clearInterval(id);
-  }, [fetchProcs]);
+    const offOpen = on('ws:open', () => send({ type: 'subscribe:procs' }));
+
+    return () => {
+      send({ type: 'unsubscribe:procs' });
+      off();
+      offOpen();
+    };
+  }, []);
 
   // Fetch services on mount (always connected when running on RDE)
   useEffect(() => {
