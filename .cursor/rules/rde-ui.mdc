@@ -1,0 +1,95 @@
+---
+description: RDE UI product requirements — panels, data sources, and UX behaviour
+alwaysApply: true
+---
+
+# RDE UI — Product Requirements
+
+This is a React + TypeScript web app (Vite) that acts as a control center for a Remote Development Environment (RDE). It connects to an RDE host and surfaces key information through focused panels.
+
+## Panels
+
+### ⚙️ ServicesPanel — supervisorctl services
+- List all `supervisorctl` services with their current status (running / stopped / fatal / etc.)
+- Python version badge per service — fetched from `GET /api/supervisor/venvs` which reads `/opt/fundbox/venvs/<service>/bin/python3 --version`; keyed by the program name (part after `:` in `group:program`)
+- Actions per service: **start**, **stop**, **restart**
+- Services may belong to a supervisor group (`group:program` format); group them visually
+- 📋 Logs button per service — dispatches `openLogFile` event pointing at `/opt/fundbox/logs/<program>.log`
+
+### 📋 LogsPanel — log viewer
+- Always visible to the right of the left slot regardless of which tab is active
+- Fetch logs from `/opt/fundbox/logs/<service_name>.log` for supervisor services
+- Fetch `docker logs` for Docker containers via synthetic paths `/docker/<name>`
+- **follow** mode uses SSE (`GET /api/logs/stream`) for real-time streaming; **last N lines** uses HTTP POST (`/api/logs/tail`)
+- When tailing multiple files, `tail` emits `==> /path/to/file <==` headers — parse these to attribute each line to its correct source file
+- Each log line is prefixed with `[filename]` in the viewer so multiple open logs are distinguishable
+- Provide a **search / filter** input that matches across all open log files
+- Opened via `openLogFile` custom event (`{ file, serviceName }`) dispatched from `ServicesPanel` or `DockerPanel`
+
+### 🐳 DockerPanel — Docker containers
+- Lives in the same left slot as `ServicesPanel`, switched via the **⚙️ Services / 🐳 Docker** tabs at the top of `left-panel-wrapper`
+- There is **no Docker toggle in `ConnectionBar`** — switching is done via the tabs only
+- List all containers (running and stopped) with name, image, status, and ports
+- Actions per container: **start**, **stop**, **restart**
+- 📋 Logs button per container — dispatches `openLogFile` with synthetic path `/docker/<name>`; `LogsPanel` streams `docker logs --tail N <name>` via the server bridge
+- Synthetic `/docker/<name>` paths are included in `GET /api/logs/list` so `LogsPanel` recognises them
+
+### CommandPanel — shell command runner
+- Allow the user to type and run arbitrary shell commands on the RDE
+- Stream stdout / stderr output in real time, distinguishing the two streams
+
+### SDKUpdatePanel
+- Show available SDK / dependency updates for RDE-managed services
+
+### GitChangesPanel
+- Show git status / diff for repos on the RDE
+
+## Layout
+
+- The left slot is a `left-panel-wrapper` div in `App.tsx` containing:
+  - A `left-panel-tabs` tab bar with **⚙️ Services** and **🐳 Docker** tabs
+  - A `left-panel-content` div that renders either `ServicesPanel` or `DockerPanel` based on the active tab
+- `LogsPanel` is always rendered to the right of the left slot
+- Other panels (`CommandPanel`, `SDKUpdatePanel`, `GitChangesPanel`) are toggled via `ConnectionBar` and rendered after `LogsPanel`
+
+## Deployment
+
+- Repo lives on the RDE at `/opt/fundbox/rde-ui`
+- The Node bridge (`server.js`) runs as a supervisord program `rde-ui`, configured in `deployment/rde/rde-ui.ini`
+- Setup is handled by `deployment/rde/setup.sh` — installs npm deps, builds the frontend, patches nginx, and registers the supervisor program
+- UI is served at `https://<rde-host>/rde-ui/` via nginx alias pointing at `dist/`
+
+## Data & Transport
+
+- All browser→RDE calls go through `window.electronAPI` (defined in `src/mock-electron-api.ts`)
+- The bridge is a zero-dependency Node script (`server.js`) on the RDE, listening on `127.0.0.1:28000`
+- **Primary transport is WebSocket** (`wss://<host>/rde-api/ws`) — a single persistent connection per browser tab, managed by `src/hooks/useWebSocket.ts`
+  - Reconnects automatically with exponential backoff
+  - Subscription-based push protocol — clients send `subscribe:<topic>` / `unsubscribe:<topic>`; server starts/stops push loops when subscriber count changes
+  - Topics: `stats` (machine CPU/mem/disk/load, every 5s), `procs` (per-service CPU/mem, every 5s), `supervisor-status` (every 10s, also pushed immediately after any control action)
+  - Log streaming: `logs:follow` / `logs:tail` / `logs:stop` messages over the same socket
+- `procs` collection uses a single `sudo supervisorctl status all` call (PIDs are in the output) + one `ps -p pid1,pid2,...` — **never** spawn one subprocess per service
+- HTTP REST remains for control actions and one-shot fetches:
+  - `GET  /api/supervisor/status` — run `sudo supervisorctl status all`
+  - `GET  /api/supervisor/venvs` — read Python version from each `/opt/fundbox/venvs/<name>/bin/python3`
+  - `POST /api/supervisor/{start,stop,restart,bulk}` — control services
+  - `GET  /api/logs/list` — returns log files + `/docker/<name>` synthetic paths
+  - `POST /api/logs/tail` — one-shot last N lines (also available over WS as `logs:tail`)
+  - `GET  /api/logs/stream` — SSE live stream kept for backwards-compat; prefer WS `logs:follow`
+  - `POST /api/logs/stop` — kill an active stream
+  - `GET  /api/docker/containers` — `docker ps -a`
+  - `POST /api/docker/action` — `docker start/stop/restart`
+- Nginx proxies `/rde-api/ws` with `Upgrade`/`Connection` headers; `/rde-api/logs/stream` with `proxy_buffering off`
+- Types are defined in `src/types.ts` — extend there when adding new data shapes
+
+## UX Rules
+
+- `ConnectionBar` is the top-level toolbar; toggles for `CommandPanel`, `SDKUpdatePanel`, and `GitChangesPanel` live there — **not** the Docker/Services switch
+- Use the `ToastContext` for transient success / error / info notifications (avoid alert/confirm)
+- Support light and dark themes via `ThemeContext`
+- Keyboard shortcuts are centralised in `useKeyboardShortcuts`
+
+
+## Contribution rules
+
+- If something imortant is changed update the rde-ui.mdc file too
